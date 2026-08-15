@@ -1,0 +1,9 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(alpaca-cpp CONFIG)
+
+include("${CMAKE_CURRENT_LIST_DIR}/alpaca-broker-cppTargets.cmake")
+
+check_required_components(alpaca-broker-cpp)

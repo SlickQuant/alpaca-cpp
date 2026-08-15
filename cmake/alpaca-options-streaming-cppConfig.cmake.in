@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(alpaca-cpp CONFIG)
+
+# msgpack is linked PRIVATE and never appears in a public header, so consumers of
+# alpaca-options-streaming-cpp do not need it.
+
+include("${CMAKE_CURRENT_LIST_DIR}/alpaca-options-streaming-cppTargets.cmake")
+
+check_required_components(alpaca-options-streaming-cpp)

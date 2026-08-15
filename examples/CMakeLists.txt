@@ -1,0 +1,11 @@
+function(alpaca_add_example tgt)
+    add_executable(${tgt} ${tgt}.cpp)
+    target_link_libraries(${tgt} PRIVATE slick::alpaca-cpp)
+    alpaca_set_target_options(${tgt})
+    set_target_properties(${tgt} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/examples)
+endfunction()
+
+if (BUILD_ALPACA_CORE)
+    alpaca_add_example(trading_overview)
+    alpaca_add_example(place_and_cancel_order)
+endif()
