@@ -82,8 +82,9 @@ inline void from_json(const json &j, account &a) {
     VARIABLE_FROM_JSON(j, a, currency);
     ENUM_FROM_JSON_WITH(j, a, status, to_account_status);
     ENUM_FROM_JSON_WITH(j, a, crypto_status, to_account_status);
-    ENUM_FROM_JSON_WITH(j, a, options_approved_level, to_options_approved_level);
-    ENUM_FROM_JSON_WITH(j, a, options_trading_level, to_options_approved_level);
+    // Sent as bare numbers (3), not as the quoted "3" the enum table is written against.
+    ENUM_FROM_JSON_SCALAR_WITH(j, a, options_approved_level, to_options_approved_level);
+    ENUM_FROM_JSON_SCALAR_WITH(j, a, options_trading_level, to_options_approved_level);
 
     DOUBLE_FROM_JSON(j, a, buying_power);
     DOUBLE_FROM_JSON(j, a, regt_buying_power);
@@ -121,7 +122,7 @@ inline void from_json(const json &j, account &a) {
     BOOL_FROM_JSON(j, a, trade_suspended_by_user);
     BOOL_FROM_JSON(j, a, shorting_enabled);
 
-    VARIABLE_FROM_JSON(j, a, crypto_tier);
+    STRING_FROM_JSON(j, a, crypto_tier);    // arrives as a bare number
     TIMESTAMP_FROM_JSON(j, a, created_at);
     TIMESTAMP_FROM_JSON(j, a, balance_asof);
 }

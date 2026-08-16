@@ -4,9 +4,12 @@
 
 #include <alpaca/utils.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 
 namespace alpaca {
 
@@ -57,6 +60,27 @@ bool read_digits(std::string_view s, size_t pos, size_t count, uint32_t &out) no
 
 }   // namespace
 
+namespace {
+
+/// Strips surrounding whitespace from an environment value.
+///
+/// Credentials pick up a trailing newline remarkably easily — `set /p`, a copied line, a
+/// value sourced from a file — and no Alpaca key or secret legitimately contains
+/// whitespace at either end. Leaving it in produces a genuinely baffling failure: the
+/// REST APIs still work, because the value goes into an HTTP header and the stray byte is
+/// trimmed in transit, while the websocket streams reject it, because there the secret is
+/// embedded in a JSON string and compared exactly. Trimming here fixes both at the source.
+std::string trim(std::string value) {
+    const auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+
+    const auto begin = std::find_if_not(value.begin(), value.end(), is_space);
+    const auto end = std::find_if_not(value.rbegin(),
+                                      std::make_reverse_iterator(begin), is_space).base();
+    return std::string(begin, end);
+}
+
+}   // namespace
+
 std::string get_env(std::string_view name) {
     const std::string key(name);
 #ifdef _MSC_VER
@@ -67,10 +91,10 @@ std::string get_env(std::string_view name) {
     }
     std::string value(buffer);
     std::free(buffer);
-    return value;
+    return trim(std::move(value));
 #else
     const char *value = std::getenv(key.c_str());
-    return value ? std::string(value) : std::string{};
+    return value ? trim(std::string(value)) : std::string{};
 #endif
 }
 

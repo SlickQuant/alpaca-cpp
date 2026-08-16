@@ -65,6 +65,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `get_env` strips surrounding whitespace, so a credential exported with a trailing
+  newline works. Without this the failure was hard to place: the REST APIs accepted the
+  value, because it goes into an HTTP header and the stray byte is trimmed in transit,
+  while the websocket streams rejected it with a bare 401, because there the secret is
+  embedded in a JSON string and compared exactly. The split behaviour pointed at the
+  stream client rather than at the environment. No Alpaca key or secret legitimately
+  contains leading or trailing whitespace; interior whitespace is preserved.
+- `account::options_approved_level`, `options_trading_level` and `crypto_tier`, and
+  `option_contract::ppind`, now populate. Alpaca quotes most Trading API scalars but sends
+  these as bare numbers and booleans, so the string-typed extractors threw inside the
+  macro — which logs and continues — and every real account came back with all three
+  unset. `string_from_json` and the `STRING_FROM_JSON` /
+  `ENUM_FROM_JSON_SCALAR_WITH` macros accept either spelling, matching how the numeric
+  helpers already tolerate both.
 - `corporate_action::special` and `foreign` are `bool` rather than `std::string`. Alpaca
   sends them as JSON booleans, not as the `"true"`/`"false"` strings the model assumed, so
   extraction threw inside the macro — which logs and continues — and both flags came back

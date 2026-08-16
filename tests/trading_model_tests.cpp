@@ -101,6 +101,42 @@ TEST(AccountModel, MissingFieldsKeepTheirDefaults) {
     EXPECT_EQ(a.created_at, 0ull);
 }
 
+TEST(AccountModel, UnquotedScalarsStillPopulateTheirFields) {
+    // Regression: the account payload quotes most scalars ("multiplier":"4") but sends
+    // options_approved_level, options_trading_level and crypto_tier as bare numbers.
+    // Reading those with string-typed extractors threw inside the macro, which logs and
+    // continues, so all three came back unset on every real account while the tests
+    // stayed green. Field values below are from a live paper account response.
+    const json j = json::parse(R"({
+        "id":"7837d5df","status":"ACTIVE","crypto_status":"ACTIVE",
+        "crypto_tier":1,"options_approved_level":3,"options_trading_level":3,
+        "multiplier":"4","buying_power":"47942.46"
+    })");
+
+    account a;
+    from_json(j, a);
+
+    EXPECT_EQ(a.options_approved_level, options_approved_level::level_3);
+    EXPECT_EQ(a.options_trading_level, options_approved_level::level_3);
+    EXPECT_EQ(a.crypto_tier, "1");
+    EXPECT_DOUBLE_EQ(a.buying_power, 47942.46);
+}
+
+TEST(AccountModel, QuotedScalarsKeepWorking) {
+    // The quoted spelling must still parse — Alpaca is inconsistent between fields and
+    // could equally become consistent in either direction.
+    const json j = json::parse(R"({
+        "id":"abc","crypto_tier":"2","options_approved_level":"2","options_trading_level":"0"
+    })");
+
+    account a;
+    from_json(j, a);
+
+    EXPECT_EQ(a.options_approved_level, options_approved_level::level_2);
+    EXPECT_EQ(a.options_trading_level, options_approved_level::disabled);
+    EXPECT_EQ(a.crypto_tier, "2");
+}
+
 TEST(AccountConfigurationsModel, Parses) {
     const json j = json::parse(R"({
         "dtbp_check": "both",
@@ -625,6 +661,21 @@ TEST(OptionContractModel, NullOpenInterestStaysUnset) {
 
     EXPECT_FALSE(c.open_interest.has_value());
     EXPECT_FALSE(c.close_price.has_value());
+}
+
+TEST(OptionContractModel, PpindArrivesAsABooleanNotAString) {
+    // Regression: same class of bug as the account's numeric scalars — `ppind` is a bare
+    // JSON boolean, so the string extractor threw and left it empty on every contract.
+    const json j = json::parse(R"({
+        "id":"5448a88c","symbol":"AAPL260817C00205000","name":"AAPL Aug 17 2026 205 Call",
+        "ppind":true,"tradable":true,"strike_price":"205","multiplier":"100"
+    })");
+
+    option_contract c;
+    from_json(j, c);
+
+    EXPECT_EQ(c.symbol, "AAPL260817C00205000");
+    EXPECT_EQ(c.ppind, "true");
 }
 
 TEST(OptionContractPage, ParsesEnvelopeAndToken) {

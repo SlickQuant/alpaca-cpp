@@ -307,23 +307,38 @@ TEST_F(TradingIntegration, SubmitGetReplaceAndCancelOrder) {
     EXPECT_EQ(by_client_id.id, submitted.id);
 
     // Replace, which supersedes the original with a new order id.
-    replace_order_request replacement;
-    replacement.limit_price = 1.50;
-    const auto replaced = client_.replace_order(submitted.id, replacement);
-    ASSERT_FALSE(replaced.id.empty());
-    open_order_id_ = replaced.id;
-    ASSERT_TRUE(replaced.limit_price.has_value());
-    EXPECT_DOUBLE_EQ(*replaced.limit_price, 1.50);
+    //
+    // Alpaca rejects a replace on an order in `accepted` status with 422 42210000
+    // ("cannot replace order in accepted status"). That is where an order sits while it
+    // is queued for the next session, so with the market closed this leg cannot run at
+    // all. Skipping just this step keeps the submit / fetch / cancel coverage available
+    // around the clock instead of making the whole test market-hours-only.
+    std::string order_to_cancel = submitted.id;
+    if (fetched.status == order_status::accepted) {
+        GTEST_LOG_(INFO) << "order is in `accepted` status (market closed) — skipping the "
+                            "replace leg, which Alpaca refuses in that state";
+    }
+    else {
+        replace_order_request replacement;
+        replacement.limit_price = 1.50;
+
+        const auto replaced = client_.replace_order(submitted.id, replacement);
+        ASSERT_FALSE(replaced.id.empty());
+        open_order_id_ = replaced.id;
+        ASSERT_TRUE(replaced.limit_price.has_value());
+        EXPECT_DOUBLE_EQ(*replaced.limit_price, 1.50);
+        order_to_cancel = replaced.id;
+    }
 
     // Cancel. Alpaca answers 204 and cancels asynchronously.
-    ASSERT_NO_THROW(client_.cancel_order(replaced.id));
+    ASSERT_NO_THROW(client_.cancel_order(order_to_cancel));
     open_order_id_.clear();
 
     // Poll briefly for the terminal state rather than assuming it is immediate.
     bool reached_terminal_state = false;
     for (int attempt = 0; attempt < 20 && !reached_terminal_state; ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
-        reached_terminal_state = !client_.get_order(replaced.id).is_open();
+        reached_terminal_state = !client_.get_order(order_to_cancel).is_open();
     }
     EXPECT_TRUE(reached_terminal_state) << "order did not reach a terminal state after cancel";
 }

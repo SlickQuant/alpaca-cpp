@@ -297,6 +297,43 @@ TEST(Credentials, HalfConfiguredPaperPairFallsBackRatherThanSendingAnEmptySecret
     EXPECT_EQ(paper.api_secret_key, "only-secret");
 }
 
+TEST(Credentials, SurroundingWhitespaceIsStrippedFromEnvironmentValues) {
+    // Regression: a secret exported with a trailing newline authenticated fine over REST,
+    // because the value goes into an HTTP header and the stray byte is trimmed in
+    // transit, but was rejected by the websocket streams with a bare 401 — there the
+    // secret is embedded in a JSON string and compared exactly. The split behaviour made
+    // it look like a bug in the stream client rather than in the environment.
+    const scoped_env key("APCA_API_KEY_ID", "AKTRAILING\n");
+    const scoped_env secret("APCA_API_SECRET_KEY", "  secret-with-space  ");
+
+    const auto creds = credentials::from_env();
+    EXPECT_EQ(creds.api_key_id, "AKTRAILING");
+    EXPECT_EQ(creds.api_secret_key, "secret-with-space");
+
+    // The auth frame the streams send must carry the cleaned value, since that is where
+    // the original failure actually surfaced.
+    const auto message = json::parse(creds.stream_auth_message());
+    EXPECT_EQ(message["key"], "AKTRAILING");
+    EXPECT_EQ(message["secret"], "secret-with-space");
+}
+
+TEST(Credentials, WhitespaceOnlyValueIsTreatedAsUnset) {
+    const scoped_env key("APCA_API_KEY_ID", "   ");
+    const scoped_env secret("APCA_API_SECRET_KEY", "\n");
+    // Cleared explicitly: an OAuth token in the developer's real environment would
+    // otherwise make the credentials non-empty and mask what this is checking.
+    const scoped_env token("APCA_API_OAUTH_TOKEN", nullptr);
+
+    EXPECT_TRUE(credentials::from_env().empty());
+}
+
+TEST(Credentials, InteriorWhitespaceIsPreserved) {
+    // Only the ends are trimmed; a value that legitimately contains a space must survive.
+    const scoped_env token("APCA_API_OAUTH_TOKEN", " a b \n");
+
+    EXPECT_EQ(credentials::from_env().oauth_token, "a b");
+}
+
 TEST(Credentials, ClientsResolveTheirEnvironmentsCredentials) {
     const scoped_env live_key("APCA_API_KEY_ID", "AKLIVE");
     const scoped_env live_secret("APCA_API_SECRET_KEY", "live-secret");

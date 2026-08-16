@@ -146,12 +146,33 @@ inline bool bool_from_json(const json &j, std::string_view field) {
     return false;
 }
 
+/// Renders a scalar field as a string whether Alpaca quoted it or not.
+///
+/// The Trading API is inconsistent about this even within a single response: the account
+/// payload sends `"multiplier":"4"` but `"crypto_tier":1` and `"options_approved_level":3`,
+/// and option contracts send `"ppind":true`. Reading any of those with a string-typed
+/// extractor throws inside the macro, which logs and moves on — leaving the field silently
+/// unset rather than failing loudly. Going through here accepts either spelling.
+inline std::string string_from_json(const json &j, std::string_view field) {
+    const auto &v = j.at(field);
+    if (v.is_null()) {
+        return {};
+    }
+    // dump() renders 3 as "3" and true as "true", which is exactly the wire vocabulary
+    // the enum tables are written against.
+    return v.is_string() ? v.get<std::string>() : v.dump();
+}
+
 // ---------------------------------------------------------------------------
 // Field extraction macros
 //
 // Every macro is a no-op when the field is absent, so a model never has to be
 // updated in lockstep with Alpaca adding or removing optional fields.
 // ---------------------------------------------------------------------------
+
+/// String field that may arrive unquoted. See `string_from_json`.
+#define STRING_FROM_JSON(j, o, field) \
+    if ((j).contains(#field) && !(j)[#field].is_null()) (o).field = alpaca::string_from_json(j, #field)
 
 /// Plain assignment via nlohmann's get_to. Skips null and missing fields.
 #define VARIABLE_FROM_JSON(j, o, field) \
@@ -217,6 +238,13 @@ inline bool bool_from_json(const json &j, std::string_view field) {
     if ((j).contains(#field) && !(j)[#field].is_null()) \
         try { (o).field = converter((j).at(#field).get<std::string_view>()); } \
         catch (const std::exception &e) { LOG_ERROR("ENUM_FROM_JSON_WITH " #field ": {} {}", e.what(), (j).dump()); }
+
+/// Enum field whose wire value may arrive unquoted, e.g. the account's options approval
+/// level, whose enumerators are "0".."3" but which Alpaca sends as a bare number.
+#define ENUM_FROM_JSON_SCALAR_WITH(j, o, field, converter) \
+    if ((j).contains(#field) && !(j)[#field].is_null()) \
+        try { (o).field = converter(alpaca::string_from_json(j, #field)); } \
+        catch (const std::exception &e) { LOG_ERROR("ENUM_FROM_JSON_SCALAR_WITH " #field ": {} {}", e.what(), (j).dump()); }
 
 /// Enum field whose JSON key differs from the member name, e.g. the assets endpoint
 /// spells `asset_class` as `"class"`.

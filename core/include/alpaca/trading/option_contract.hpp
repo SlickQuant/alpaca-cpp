@@ -94,7 +94,7 @@ inline void from_json(const json &j, option_contract &c) {
     VARIABLE_FROM_JSON(j, c, open_interest_date);
     OPTIONAL_DOUBLE_FROM_JSON(j, c, close_price);
     VARIABLE_FROM_JSON(j, c, close_price_date);
-    VARIABLE_FROM_JSON(j, c, ppind);
+    STRING_FROM_JSON(j, c, ppind);      // arrives as a bare boolean
 
     if (j.contains("deliverables") && j["deliverables"].is_array()) {
         c.deliverables = j["deliverables"].get<std::vector<option_deliverable>>();
