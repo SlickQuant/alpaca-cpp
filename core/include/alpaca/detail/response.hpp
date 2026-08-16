@@ -5,7 +5,9 @@
 #pragma once
 
 #include <iterator>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -46,6 +48,39 @@ void append_page(const json &page, std::string_view key, std::vector<T> &out) {
     out.insert(out.end(),
                std::make_move_iterator(batch.begin()),
                std::make_move_iterator(batch.end()));
+}
+
+/// Merges one page of a symbol-keyed Market Data response into an accumulating map.
+///
+/// The historical endpoints answer `{"bars": {"AAPL": [...], "MSFT": [...]}}` and page
+/// across symbols, so a symbol can appear on several consecutive pages. Concatenating per
+/// symbol — rather than assigning — is what keeps a multi-symbol history intact; Alpaca
+/// sorts by symbol then timestamp, so appending preserves the requested ordering.
+template <typename T>
+void merge_symbol_page(const json &page, std::string_view key,
+                       std::unordered_map<std::string, std::vector<T>> &out) {
+    if (!page.is_object() || !page.contains(key) || !page[key].is_object()) {
+        return;
+    }
+    for (const auto &[symbol, entries] : page[key].items()) {
+        if (!entries.is_array()) {
+            continue;
+        }
+        auto batch = entries.template get<std::vector<T>>();
+        auto &target = out[symbol];
+        target.insert(target.end(),
+                      std::make_move_iterator(batch.begin()),
+                      std::make_move_iterator(batch.end()));
+    }
+}
+
+/// Extracts a symbol-keyed map of single values, as returned by the `latest*` endpoints.
+template <typename T>
+std::unordered_map<std::string, T> to_symbol_map(const json &j, std::string_view key) {
+    if (!j.is_object() || !j.contains(key) || !j[key].is_object()) {
+        return {};
+    }
+    return j[key].template get<std::unordered_map<std::string, T>>();
 }
 
 }   // namespace alpaca::detail

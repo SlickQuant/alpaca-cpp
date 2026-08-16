@@ -6,7 +6,62 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added — Phase 1: foundation and Trading API v2
+### Added — separate paper and live credentials
+
+- `credentials::from_env(environment)` resolves the pair matching the target environment:
+  `environment::paper` reads `APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY` (plus
+  `APCA_PAPER_API_OAUTH_TOKEN`) and falls back to the unprefixed variables when they are
+  unset, while live and sandbox always read the unprefixed pair. Paper and live keys are not
+  interchangeable — a live key is rejected by `paper-api.alpaca.markets` with HTTP 401 — so
+  this lets both sit in the environment at once without either leaking into the other.
+- A half-configured paper pair (key set, secret missing) falls back rather than sending a
+  request with an empty secret that would fail as a confusing 401.
+- `credentials::resolve(creds, env)` fills in empty credentials from the environment and
+  leaves anything explicitly supplied untouched.
+- 7 further offline tests covering the precedence rules, using a scoped environment-variable
+  helper so they assert against a known environment rather than the developer's own.
+
+### Changed
+
+- The client constructors take `credentials creds = {}` instead of eagerly calling
+  `credentials::from_env()` in the default argument, and resolve against their environment
+  in the constructor body — a default argument cannot see the `env` parameter, so the old
+  form always read the live variables even when constructing a paper client. Passing
+  credentials explicitly behaves exactly as before.
+
+### Added — Market Data API
+
+- `alpaca::data_client` and `alpaca::data_client_awaitable`, with identical method sets,
+  covering stock bars/trades/quotes/auctions/snapshots and their `latest*` forms, condition
+  and exchange code maps, crypto bars/trades/quotes/snapshots/order books, options
+  bars/trades/latest quotes/snapshots and the option chain, news, the most-actives and
+  movers screeners, corporate actions, forex rates, fixed income prices and quotes, and
+  logos.
+- `alpaca::timeframe` with the documented intervals as constants and a `valid()` check
+  against Alpaca's per-unit limits (minutes 1-59, hours 1-23, 1 for day/week/month).
+- Shared query bases (`history_query`, `bar_query`, `latest_query` and the crypto/option
+  variants) so the symbols/window/paging/feed set is declared once.
+- Every historical method follows `next_page_token` to completion and merges pages **per
+  symbol**; a `_page` twin returns a single page for open-ended windows where fetching
+  everything would be unbounded.
+- Models normalise the Market Data API's single-letter wire keys to spelled-out fields, and
+  absorb the places where the same key means different things — options send `c` as one
+  condition string where stocks send an array, and on the auctions endpoint `c` is the
+  closing-auction array entirely.
+- Option greeks and implied volatility are `std::optional`: Alpaca omits them for contracts
+  it cannot price, and a defaulted delta of 0 would be indistinguishable from a genuinely
+  delta-neutral position.
+- Corporate actions are flattened from Alpaca's fifteen per-type arrays into one vector
+  tagged with a `corporate_action_type`, rather than fifteen parallel collections.
+- `request_context::get_raw` / `async_get_raw` for endpoints that do not answer JSON; the
+  logos endpoint serves PNG bytes. Status checking, rate limiting and retry are unchanged —
+  only the parse step is skipped.
+- 42 further offline tests plus a 20-test read-only market-data integration group pinned to
+  the IEX feed, which runs with either paper or live keys.
+- A `market_data_overview` example covering a stock snapshot, a bounded window of daily
+  bars, a crypto order book and recent news — every call on it works on a free account.
+
+### Added — foundation and Trading API v2
 
 **Build system**
 - Three independently buildable libraries in one repo: `alpaca-cpp` (core),

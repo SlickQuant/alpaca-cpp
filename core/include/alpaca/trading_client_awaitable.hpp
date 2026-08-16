@@ -46,7 +46,7 @@ namespace alpaca {
 /// @endcode
 class trading_client_awaitable {
 public:
-    explicit trading_client_awaitable(credentials creds = credentials::from_env(),
+    explicit trading_client_awaitable(credentials creds = {},
                                       environment env = environment::paper,
                                       uint32_t requests_per_minute = 200);
 

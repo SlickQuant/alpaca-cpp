@@ -15,13 +15,14 @@ using detail::to_model;
 using detail::to_vector;
 
 trading_client::trading_client(credentials creds, environment env, uint32_t requests_per_minute)
-    : ctx_(std::string(trading_base_url(env)), std::move(creds),
+    : ctx_(std::string(trading_base_url(env)), credentials::resolve(std::move(creds), env),
            detail::auth_scheme::api_key, requests_per_minute)
     , env_(env)
 {}
 
 trading_client::trading_client(credentials creds, std::string base_url, uint32_t requests_per_minute)
-    : ctx_(std::move(base_url), std::move(creds), detail::auth_scheme::api_key, requests_per_minute)
+    : ctx_(std::move(base_url), credentials::resolve(std::move(creds), environment::paper),
+           detail::auth_scheme::api_key, requests_per_minute)
     , env_(environment::paper)
 {}
 

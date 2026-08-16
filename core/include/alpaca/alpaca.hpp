@@ -25,5 +25,21 @@
 #include <alpaca/trading/position.hpp>
 #include <alpaca/trading/watchlist.hpp>
 
+#include <alpaca/data/auction.hpp>
+#include <alpaca/data/bar.hpp>
+#include <alpaca/data/corporate_action.hpp>
+#include <alpaca/data/fixed_income.hpp>
+#include <alpaca/data/forex.hpp>
+#include <alpaca/data/news.hpp>
+#include <alpaca/data/orderbook.hpp>
+#include <alpaca/data/query.hpp>
+#include <alpaca/data/quote.hpp>
+#include <alpaca/data/screener.hpp>
+#include <alpaca/data/snapshot.hpp>
+#include <alpaca/data/timeframe.hpp>
+#include <alpaca/data/trade.hpp>
+
+#include <alpaca/data_client.hpp>
+#include <alpaca/data_client_awaitable.hpp>
 #include <alpaca/trading_client.hpp>
 #include <alpaca/trading_client_awaitable.hpp>

@@ -4,12 +4,12 @@
 //
 // Integration tests against a real PAPER trading account.
 //
-// These are skipped unless APCA_API_KEY_ID and APCA_API_SECRET_KEY are set, so the default
-// `ctest` run needs no credentials and no network. They deliberately only ever talk to
+// These are skipped unless paper credentials are configured, so the default `ctest` run
+// needs no credentials and no network. They deliberately only ever talk to
 // paper-api.alpaca.markets — nothing here should be pointed at a live account.
 //
-//   set APCA_API_KEY_ID=...
-//   set APCA_API_SECRET_KEY=...
+//   set APCA_PAPER_API_KEY_ID=PK...
+//   set APCA_PAPER_API_SECRET_KEY=...
 //   alpaca_tests.exe --gtest_filter=*Integration*
 
 #include <gtest/gtest.h>
@@ -35,10 +35,6 @@ namespace alpaca::tests {
 
 namespace {
 
-bool credentials_available() {
-    return !credentials::from_env().empty();
-}
-
 /// Why the suite cannot run, or an empty string when it can.
 ///
 /// Having credentials in the environment is not the same as having credentials that work
@@ -46,11 +42,11 @@ bool credentials_available() {
 /// /v2/clock but are rejected with 401 on every account-scoped one, which would otherwise
 /// surface as a dozen unrelated-looking failures. Probe once and report the real reason.
 std::string paper_access_blocker() {
-    if (!credentials_available()) {
-        return "APCA_API_KEY_ID / APCA_API_SECRET_KEY not set";
+    if (credentials::from_env(environment::paper).empty()) {
+        return "APCA_PAPER_API_KEY_ID / APCA_PAPER_API_SECRET_KEY not set";
     }
 
-    trading_client probe;
+    trading_client probe;   // paper by default, resolving the paper credentials
     probe.set_retry_policy({1, 0, 0});
     try {
         probe.get_account();
@@ -59,9 +55,10 @@ std::string paper_access_blocker() {
     catch (const api_error &e) {
         if (e.is_unauthorized()) {
             return std::format(
-                "credentials in the environment are not valid for paper trading "
-                "(HTTP {}: {}). Paper keys start with 'PK'; live keys start with 'AK' and are "
-                "rejected by paper-api.alpaca.markets. Set paper keys to run these tests.",
+                "the configured credentials are not valid for paper trading (HTTP {}: {}). "
+                "Paper keys start with 'PK'; live keys start with 'AK' and are rejected by "
+                "paper-api.alpaca.markets. Set APCA_PAPER_API_KEY_ID / "
+                "APCA_PAPER_API_SECRET_KEY to run these tests.",
                 e.http_status, e.message);
         }
         return std::format("paper account unreachable (HTTP {}: {})", e.http_status, e.message);

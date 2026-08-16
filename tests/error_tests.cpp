@@ -6,9 +6,12 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <string>
 
 #include <alpaca/auth.hpp>
+#include <alpaca/trading_client.hpp>
+#include <alpaca/utils.hpp>
 #include <alpaca/detail/request_context.hpp>
 #include <alpaca/error.hpp>
 
@@ -175,6 +178,142 @@ TEST(Credentials, StreamAuthMessageUsesDocumentedOauthForm) {
     const auto j = json::parse(creds.stream_auth_message());
     EXPECT_EQ(j["key"], "oauth");
     EXPECT_EQ(j["secret"], "tok");
+}
+
+TEST(Credentials, ResolveKeepsExplicitCredentialsUntouched) {
+    // A caller who passes credentials must never have them silently replaced by whatever
+    // happens to be in the environment.
+    const credentials explicit_creds("explicit-key", "explicit-secret");
+
+    for (auto env : {environment::paper, environment::live, environment::sandbox}) {
+        const auto resolved = credentials::resolve(explicit_creds, env);
+        EXPECT_EQ(resolved.api_key_id, "explicit-key");
+        EXPECT_EQ(resolved.api_secret_key, "explicit-secret");
+    }
+
+    const auto oauth = credentials::resolve(credentials::from_oauth_token("tok"), environment::live);
+    EXPECT_EQ(oauth.oauth_token, "tok");
+}
+
+TEST(Credentials, ResolveFillsEmptyCredentialsFromTheEnvironment) {
+    // Empty in, environment out — this is what makes `trading_client client;` work.
+    const auto resolved = credentials::resolve({}, environment::paper);
+    EXPECT_EQ(resolved.api_key_id, credentials::from_env(environment::paper).api_key_id);
+}
+
+namespace {
+
+/// Sets an environment variable for the duration of a scope and restores it afterwards, so
+/// the precedence rules can be tested deterministically rather than against whatever the
+/// developer's machine happens to export.
+class scoped_env {
+public:
+    scoped_env(const char *name, const char *value)
+        : name_(name)
+        , had_previous_(!get_env(name).empty())
+        , previous_(get_env(name)) {
+        set(name_.c_str(), value);
+    }
+
+    ~scoped_env() {
+        set(name_.c_str(), had_previous_ ? previous_.c_str() : nullptr);
+    }
+
+    scoped_env(const scoped_env &) = delete;
+    scoped_env& operator=(const scoped_env &) = delete;
+
+private:
+    static void set(const char *name, const char *value) {
+#ifdef _MSC_VER
+        // An empty value removes the variable on Windows.
+        _putenv_s(name, value ? value : "");
+#else
+        if (value) {
+            setenv(name, value, 1);
+        }
+        else {
+            unsetenv(name);
+        }
+#endif
+    }
+
+    std::string name_;
+    bool had_previous_;
+    std::string previous_;
+};
+
+}   // namespace
+
+TEST(Credentials, PaperPrefersThePaperVariables) {
+    const scoped_env live_key("APCA_API_KEY_ID", "AKLIVE");
+    const scoped_env live_secret("APCA_API_SECRET_KEY", "live-secret");
+    const scoped_env paper_key("APCA_PAPER_API_KEY_ID", "PKPAPER");
+    const scoped_env paper_secret("APCA_PAPER_API_SECRET_KEY", "paper-secret");
+
+    const auto paper = credentials::from_env(environment::paper);
+    EXPECT_EQ(paper.api_key_id, "PKPAPER");
+    EXPECT_EQ(paper.api_secret_key, "paper-secret");
+}
+
+TEST(Credentials, LiveAndSandboxAlwaysReadTheUnprefixedVariables) {
+    // Only paper has its own pair; a paper key must never leak into a live client.
+    const scoped_env live_key("APCA_API_KEY_ID", "AKLIVE");
+    const scoped_env live_secret("APCA_API_SECRET_KEY", "live-secret");
+    const scoped_env paper_key("APCA_PAPER_API_KEY_ID", "PKPAPER");
+    const scoped_env paper_secret("APCA_PAPER_API_SECRET_KEY", "paper-secret");
+
+    for (auto env : {environment::live, environment::sandbox}) {
+        const auto resolved = credentials::from_env(env);
+        EXPECT_EQ(resolved.api_key_id, "AKLIVE");
+        EXPECT_EQ(resolved.api_secret_key, "live-secret");
+    }
+
+    // The no-argument overload keeps its original meaning.
+    EXPECT_EQ(credentials::from_env().api_key_id, "AKLIVE");
+}
+
+TEST(Credentials, PaperFallsBackToUnprefixedWhenPaperVariablesAreUnset) {
+    // A single-account setup that only exports APCA_API_* must keep working.
+    const scoped_env live_key("APCA_API_KEY_ID", "AKONLY");
+    const scoped_env live_secret("APCA_API_SECRET_KEY", "only-secret");
+    const scoped_env paper_key("APCA_PAPER_API_KEY_ID", nullptr);
+    const scoped_env paper_secret("APCA_PAPER_API_SECRET_KEY", nullptr);
+
+    const auto paper = credentials::from_env(environment::paper);
+    EXPECT_EQ(paper.api_key_id, "AKONLY");
+    EXPECT_EQ(paper.api_secret_key, "only-secret");
+}
+
+TEST(Credentials, HalfConfiguredPaperPairFallsBackRatherThanSendingAnEmptySecret) {
+    // Only the key set, no secret: the pair is unusable, so falling back beats sending a
+    // request with an empty secret that would fail with a confusing 401.
+    const scoped_env live_key("APCA_API_KEY_ID", "AKONLY");
+    const scoped_env live_secret("APCA_API_SECRET_KEY", "only-secret");
+    const scoped_env paper_key("APCA_PAPER_API_KEY_ID", "PKPAPER");
+    const scoped_env paper_secret("APCA_PAPER_API_SECRET_KEY", nullptr);
+
+    const auto paper = credentials::from_env(environment::paper);
+    EXPECT_EQ(paper.api_key_id, "AKONLY");
+    EXPECT_EQ(paper.api_secret_key, "only-secret");
+}
+
+TEST(Credentials, ClientsResolveTheirEnvironmentsCredentials) {
+    const scoped_env live_key("APCA_API_KEY_ID", "AKLIVE");
+    const scoped_env live_secret("APCA_API_SECRET_KEY", "live-secret");
+    const scoped_env paper_key("APCA_PAPER_API_KEY_ID", "PKPAPER");
+    const scoped_env paper_secret("APCA_PAPER_API_SECRET_KEY", "paper-secret");
+
+    // Constructing a client must pick up the pair matching its environment, which is the
+    // whole point of resolving lazily rather than in a default argument.
+    const trading_client paper;
+    EXPECT_EQ(paper.context().creds().api_key_id, "PKPAPER");
+
+    const trading_client live({}, environment::live);
+    EXPECT_EQ(live.context().creds().api_key_id, "AKLIVE");
+
+    // An explicit argument still wins over both.
+    const trading_client explicit_creds(credentials("EXPLICIT", "s"), environment::paper);
+    EXPECT_EQ(explicit_creds.context().creds().api_key_id, "EXPLICIT");
 }
 
 TEST(Base64, KnownVectors) {

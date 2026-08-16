@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include <alpaca/environment.hpp>
+
 namespace alpaca {
 
 using header_list = std::vector<std::pair<std::string, std::string>>;
@@ -37,6 +39,22 @@ struct credentials {
     /// Builds credentials from `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`, falling back to
     /// `APCA_API_OAUTH_TOKEN`. These are the same names the official SDKs use.
     static credentials from_env();
+
+    /// Environment-aware variant.
+    ///
+    /// Paper and live keys are not interchangeable — a live key (`AK...`) is rejected by
+    /// `paper-api.alpaca.markets` with HTTP 401 — so keeping both in the environment at
+    /// once needs two variable pairs. For `environment::paper` this reads
+    /// `APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY`, falling back to the unprefixed
+    /// pair when they are unset. Live and sandbox always read the unprefixed pair.
+    static credentials from_env(environment env);
+
+    /// Returns `creds` unchanged when it carries anything, otherwise resolves it from the
+    /// environment for `env`. This is what the clients apply to a default-constructed
+    /// credentials argument.
+    static credentials resolve(credentials creds, environment env) {
+        return creds.empty() ? from_env(env) : std::move(creds);
+    }
 
     /// Builds OAuth credentials from a bearer token.
     static credentials from_oauth_token(std::string token) {

@@ -51,6 +51,9 @@ if (BUILD_ALPACA_CORE)
         trading_model_tests.cpp
         order_request_tests.cpp
         trading_integration_tests.cpp
+        data_model_tests.cpp
+        data_query_tests.cpp
+        data_integration_tests.cpp
     )
     target_link_libraries(alpaca_tests PRIVATE slick::alpaca-cpp)
 endif()

@@ -5,8 +5,8 @@
 // Read-only tour of the Trading API: account, clock, positions and open orders.
 // Places no orders, so it is safe to run at any time.
 //
-//   set APCA_API_KEY_ID=PK...
-//   set APCA_API_SECRET_KEY=...
+//   set APCA_PAPER_API_KEY_ID=PK...
+//   set APCA_PAPER_API_SECRET_KEY=...
 //   trading_overview
 
 #include <iomanip>
@@ -83,8 +83,9 @@ int main() {
         std::cerr << "Alpaca rejected the request: HTTP " << e.http_status
                   << " (code " << e.code << ") " << e.message << '\n';
         if (e.is_unauthorized()) {
-            std::cerr << "Check APCA_API_KEY_ID / APCA_API_SECRET_KEY. Paper keys start with "
-                         "'PK'; live keys ('AK') are rejected by paper-api.alpaca.markets.\n";
+            std::cerr << "Check APCA_PAPER_API_KEY_ID / APCA_PAPER_API_SECRET_KEY (or the "
+                         "unprefixed pair). Paper keys start with 'PK'; live keys ('AK') are "
+                         "rejected by paper-api.alpaca.markets.\n";
         }
         return 1;
     }

@@ -142,8 +142,8 @@ header_list request_context::build_headers(bool with_body) const {
     return headers;
 }
 
-json request_context::execute(verb v, std::string_view path,
-                              const query_builder &query, const json *body) const {
+std::string request_context::execute_raw(verb v, std::string_view path,
+                                         const query_builder &query, const json *body) const {
     const std::string url = build_url(path, query);
     const std::string payload = body ? body->dump() : std::string{};
 
@@ -162,7 +162,7 @@ json request_context::execute(verb v, std::string_view path,
         }
 
         if (response.is_ok()) {
-            return parse_body(response.result_text);
+            return std::move(response.result_text);
         }
 
         if (response.result_code == 429) {
@@ -184,8 +184,17 @@ json request_context::execute(verb v, std::string_view path,
     }
 }
 
+json request_context::execute(verb v, std::string_view path,
+                              const query_builder &query, const json *body) const {
+    return parse_body(execute_raw(v, path, query, body));
+}
+
 json request_context::get(std::string_view path, const query_builder &query) const {
     return execute(verb::get, path, query, nullptr);
+}
+
+std::string request_context::get_raw(std::string_view path, const query_builder &query) const {
+    return execute_raw(verb::get, path, query, nullptr);
 }
 
 json request_context::post(std::string_view path, const json &body) const {
@@ -204,9 +213,8 @@ json request_context::del(std::string_view path, const json &body) const {
     return execute(verb::del, path, {}, body.empty() ? nullptr : &body);
 }
 
-asio::awaitable<json> request_context::async_execute(verb v, std::string path,
-                                                     query_builder query,
-                                                     std::shared_ptr<const json> body) const {
+asio::awaitable<std::string> request_context::async_execute_raw(
+        verb v, std::string path, query_builder query, std::shared_ptr<const json> body) const {
     const std::string url = build_url(path, query);
     const std::string payload = body ? body->dump() : std::string{};
 
@@ -233,7 +241,7 @@ asio::awaitable<json> request_context::async_execute(verb v, std::string path,
         }
 
         if (response.is_ok()) {
-            co_return parse_body(response.result_text);
+            co_return std::move(response.result_text);
         }
 
         if (response.result_code == 429) {
@@ -255,8 +263,19 @@ asio::awaitable<json> request_context::async_execute(verb v, std::string path,
     }
 }
 
+asio::awaitable<json> request_context::async_execute(verb v, std::string path, query_builder query,
+                                                     std::shared_ptr<const json> body) const {
+    co_return parse_body(co_await async_execute_raw(v, std::move(path), std::move(query),
+                                                    std::move(body)));
+}
+
 asio::awaitable<json> request_context::async_get(std::string_view path, query_builder query) const {
     return async_execute(verb::get, std::string(path), std::move(query), nullptr);
+}
+
+asio::awaitable<std::string> request_context::async_get_raw(std::string_view path,
+                                                            query_builder query) const {
+    return async_execute_raw(verb::get, std::string(path), std::move(query), nullptr);
 }
 
 asio::awaitable<json> request_context::async_post(std::string_view path, json body) const {

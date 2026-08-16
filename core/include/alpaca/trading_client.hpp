@@ -32,16 +32,22 @@ namespace alpaca {
 /// returned empty vector always means "the account really has none of these" and never
 /// "the request failed". Rate limiting and retry-with-backoff are applied automatically.
 ///
-/// Defaults to **paper trading** and to credentials from `APCA_API_KEY_ID` /
-/// `APCA_API_SECRET_KEY`. Pointing at live money is always an explicit act:
+/// Defaults to **paper trading**. Pointing at live money is always an explicit act:
 ///
 /// @code
 ///   alpaca::trading_client paper;                                    // paper, env credentials
-///   alpaca::trading_client live({key, secret}, alpaca::environment::live);
+///   alpaca::trading_client live({}, alpaca::environment::live);      // live, env credentials
+///   alpaca::trading_client explicit_creds({key, secret}, alpaca::environment::live);
 /// @endcode
+///
+/// Credentials left empty are resolved from the environment for the target environment:
+/// paper reads `APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY` and falls back to the
+/// unprefixed pair, while live reads `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`. Keeping the
+/// two apart matters because they are not interchangeable — a live key is rejected by
+/// `paper-api.alpaca.markets` with HTTP 401.
 class trading_client {
 public:
-    explicit trading_client(credentials creds = credentials::from_env(),
+    explicit trading_client(credentials creds = {},
                             environment env = environment::paper,
                             uint32_t requests_per_minute = 200);
 

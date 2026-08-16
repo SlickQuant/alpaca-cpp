@@ -68,6 +68,12 @@ public:
     // --- synchronous -------------------------------------------------------
 
     json get(std::string_view path, const query_builder &query = {}) const;
+
+    /// GET returning the response body verbatim, for endpoints that do not answer JSON
+    /// (the logos endpoint serves a PNG). Status checking, rate limiting and retry are
+    /// applied identically; only the parse step is skipped.
+    std::string get_raw(std::string_view path, const query_builder &query = {}) const;
+
     json post(std::string_view path, const json &body) const;
     json put(std::string_view path, const json &body) const;
     json patch(std::string_view path, const json &body) const;
@@ -76,6 +82,7 @@ public:
     // --- coroutine ---------------------------------------------------------
 
     asio::awaitable<json> async_get(std::string_view path, query_builder query = {}) const;
+    asio::awaitable<std::string> async_get_raw(std::string_view path, query_builder query = {}) const;
     asio::awaitable<json> async_post(std::string_view path, json body) const;
     asio::awaitable<json> async_put(std::string_view path, json body) const;
     asio::awaitable<json> async_patch(std::string_view path, json body) const;
@@ -103,8 +110,16 @@ private:
     /// Headers for one request, including Content-Type for bodied verbs.
     header_list build_headers(bool with_body) const;
 
-    /// Executes one attempt and returns the parsed body, throwing `api_error` on failure.
+    /// Runs the rate-limit / send / retry loop and returns the raw body, throwing
+    /// `api_error` once the attempts are exhausted or the failure is not retryable.
+    std::string execute_raw(verb v, std::string_view path, const query_builder &query,
+                            const json *body) const;
+
+    /// `execute_raw` plus JSON parsing.
     json execute(verb v, std::string_view path, const query_builder &query, const json *body) const;
+
+    asio::awaitable<std::string> async_execute_raw(verb v, std::string path, query_builder query,
+                                                   std::shared_ptr<const json> body) const;
 
     asio::awaitable<json> async_execute(verb v, std::string path, query_builder query,
                                         std::shared_ptr<const json> body) const;

@@ -8,9 +8,9 @@
 A modern C++20 SDK for [alpaca.markets](https://alpaca.markets) — Trading API, Market Data API,
 Broker API, and every streaming interface.
 
-> **Status: Phase 1 of 6.** The Trading API (v2) is complete with both synchronous and
-> coroutine clients. Market Data, streaming, the Broker library and the options-streaming
-> library are being added in subsequent phases — see [Roadmap](#roadmap).
+> **Status: Phase 2 of 6.** The Trading API (v2) and Market Data API are complete, each
+> with both synchronous and coroutine clients. Streaming, the Broker library and the
+> options-streaming library are being added in subsequent phases — see [Roadmap](#roadmap).
 
 ## Three libraries, one repo
 
@@ -87,25 +87,35 @@ target_link_libraries(my_app PRIVATE slick::alpaca-cpp)
 
 ### Credentials and environments
 
-The client defaults to **paper trading** and reads `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`
-from the environment. Trading with real money is always an explicit act:
+The client defaults to **paper trading**. Trading with real money is always an explicit act:
 
 ```cpp
 #include <alpaca/trading_client.hpp>
 
 alpaca::trading_client paper;                                  // paper + env credentials
-alpaca::trading_client explicit_creds({key, secret});          // paper, explicit credentials
-alpaca::trading_client live({key, secret}, alpaca::environment::live);
+alpaca::trading_client live({}, alpaca::environment::live);    // live + env credentials
+alpaca::trading_client explicit_creds({key, secret}, alpaca::environment::live);
 ```
 
-OAuth bearer tokens work anywhere credentials do:
+Credentials left empty are resolved from the environment for the target environment:
+
+| Environment | Variables read |
+|---|---|
+| `paper` | `APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY`, falling back to the unprefixed pair |
+| `live`, `sandbox` | `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` |
+
+> Paper API keys begin with `PK`, live keys with `AK`, and they are **not** interchangeable —
+> a live key is rejected by `paper-api.alpaca.markets` with HTTP 401 (`40110000`). The two
+> variable pairs let both live in the environment at once; a paper key is never used for a
+> live client, or vice versa. If you only have one account, export just the unprefixed pair
+> and paper falls back to it.
+
+An explicitly passed `credentials` always wins over the environment. OAuth bearer tokens
+work anywhere credentials do:
 
 ```cpp
 alpaca::trading_client client(alpaca::credentials::from_oauth_token(token));
 ```
-
-> Paper API keys begin with `PK`, live keys with `AK`. Live keys are rejected by
-> `paper-api.alpaca.markets` with HTTP 401 (`40110000`).
 
 ### Errors are raised, never swallowed
 
@@ -155,6 +165,67 @@ auto spread = client.submit_order(alpaca::order_request::multi_leg({
 }, 1));
 ```
 
+### Market data
+
+`data_client` talks to `data.alpaca.markets`, which is not account-scoped — paper and live
+keys both work. `iex` is the only feed available without a data subscription.
+
+```cpp
+#include <alpaca/data_client.hpp>
+
+alpaca::data_client data;
+
+alpaca::bar_query query;
+query.symbols   = {"AAPL", "MSFT"};
+query.timeframe = alpaca::timeframes::one_day;
+query.start     = "2024-01-02";
+query.end       = "2024-02-01";
+query.feed      = alpaca::data_feed::iex;
+
+// Follows next_page_token to completion and merges every page, per symbol.
+auto bars = data.get_stock_bars(query);
+for (const auto &b : bars["AAPL"]) {
+    std::cout << alpaca::to_rfc3339(b.timestamp) << ' ' << b.close << '\n';
+}
+
+auto quote = data.get_latest_stock_quote("AAPL", alpaca::data_feed::iex);
+auto snap  = data.get_stock_snapshot("AAPL", alpaca::data_feed::iex);
+```
+
+Crypto needs no subscription, and the venue is a path segment rather than a feed parameter:
+
+```cpp
+auto books = data.get_latest_crypto_orderbooks({"BTC/USD"});
+std::cout << books["BTC/USD"].best_bid() << " / " << books["BTC/USD"].best_ask() << '\n';
+```
+
+Options snapshots carry greeks and implied volatility, both `std::optional` because Alpaca
+omits them for contracts it cannot price:
+
+```cpp
+alpaca::option_chain_query chain;
+chain.type = alpaca::contract_type::call;
+chain.expiration_date = "2024-06-28";
+
+for (const auto &[symbol, snap] : data.get_option_chain("AAPL", chain)) {
+    if (snap.greeks) { std::cout << symbol << " delta " << snap.greeks->delta << '\n'; }
+}
+```
+
+#### Paging large windows
+
+Every historical method has a `_page` twin returning one page plus `next_page_token`. Use
+the plain method for a bounded window, and the `_page` variant when the window is
+open-ended and fetching everything could be unbounded:
+
+```cpp
+auto page = data.get_stock_bars_page(query);
+while (!page.next_page_token.empty()) {
+    query.page_token = page.next_page_token;
+    page = data.get_stock_bars_page(query);
+}
+```
+
 ### Coroutine client
 
 `trading_client_awaitable` mirrors every `trading_client` method, returning
@@ -172,6 +243,8 @@ asio::awaitable<void> run() {
         alpaca::order_request::market("AAPL", 1, alpaca::order_side::buy));
 }
 ```
+
+`data_client_awaitable` does the same for the Market Data API.
 
 ### Timestamps
 
@@ -245,12 +318,32 @@ Order types: market, limit, stop, stop-limit, trailing stop (by price or percent
 
 All of the above are available on both `trading_client` and `trading_client_awaitable`.
 
+### Market Data API
+
+| Group | Methods |
+|---|---|
+| Stocks — historical | `get_stock_bars`, `get_stock_trades`, `get_stock_quotes`, `get_stock_auctions` (each with a `_page` twin) |
+| Stocks — latest | `get_latest_stock_bars`, `get_latest_stock_trades`, `get_latest_stock_quotes`, `get_stock_snapshots`, plus single-symbol wrappers |
+| Stocks — reference | `get_stock_condition_codes`, `get_stock_exchange_codes` |
+| Crypto | `get_crypto_bars`, `get_crypto_trades`, `get_crypto_quotes`, `get_latest_crypto_bars`/`_trades`/`_quotes`/`_orderbooks`, `get_crypto_snapshots` |
+| Options | `get_option_bars`, `get_option_trades`, `get_latest_option_trades`, `get_latest_option_quotes`, `get_option_snapshots`, `get_option_chain`, `get_option_condition_codes`, `get_option_exchange_codes` |
+| News | `get_news`, `get_news_page` |
+| Screener | `get_most_actives`, `get_movers` |
+| Corporate actions | `get_corporate_actions`, `get_corporate_actions_page` |
+| Forex | `get_forex_rates`, `get_latest_forex_rates` |
+| Fixed income | `get_latest_fixed_income_prices`, `get_latest_fixed_income_quotes` |
+| Logos | `get_logo` (raw PNG bytes) |
+
+Available on both `data_client` and `data_client_awaitable`. Timestamps are nanoseconds,
+symbol-keyed responses come back as `std::unordered_map`, and pagination merges per symbol
+rather than overwriting.
+
 ## Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Foundation + Trading API v2 | ✅ complete |
-| 2 | Market Data API (stocks, crypto, options REST, news, screener, corporate actions, forex) | planned |
+| 2 | Market Data API (stocks, crypto, options REST, news, screener, corporate actions, forex) | ✅ complete |
 | 3 | JSON streaming — trade updates, stocks, crypto, news | planned |
 | 4 | `alpaca-options-streaming-cpp` — opra / indicative msgpack streams | planned |
 | 5 | `alpaca-broker-cpp` — Broker API v1 + SSE events | planned |
@@ -269,14 +362,27 @@ The suite has two tiers:
 - **Offline unit tests** — run with no credentials and no network. They cover RFC-3339
   parsing edge cases, query-string encoding, number formatting, error mapping, rate-limiter
   accounting under concurrent threads, and `from_json` against captured Alpaca payloads.
-- **Integration tests** — skipped unless `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` are set,
-  and they only ever talk to **paper trading**. Orders are placed far from the market and
-  cancelled in teardown. If the configured credentials cannot reach the paper account the
-  whole group is skipped once with the reason, rather than failing test by test.
+- **Integration tests** — skipped unless credentials are configured. The trading group needs
+  **paper** credentials (`APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY`, or the
+  unprefixed pair if that holds paper keys) and only ever talks to paper trading; orders are
+  placed far from the market and cancelled in teardown. The market data group is read-only,
+  pinned to the IEX feed, and runs with either paper or live keys since
+  `data.alpaca.markets` is not account-scoped. Each group probes once at start-up and skips
+  as a whole with the reason if it cannot reach the API, rather than failing test by test.
 
 ```bash
 ./build/tests/alpaca_tests --gtest_filter=-*Integration*   # offline only
 ```
+
+## Examples
+
+Built with `-DBUILD_ALPACA_EXAMPLES=ON` into `build/examples/`.
+
+| Example | What it does |
+|---|---|
+| `trading_overview` | Read-only: account, clock, positions, open orders. Places no orders. |
+| `market_data_overview` | Read-only: stock snapshot, daily bars, a crypto order book, recent news. Free-tier endpoints only. |
+| `place_and_cancel_order` | Full order lifecycle on paper — submit a resting limit order, read it back, replace, cancel. Refuses to run against a live account. |
 
 ## License
 

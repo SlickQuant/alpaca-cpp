@@ -3,6 +3,8 @@ add_library(alpaca-cpp STATIC
     src/auth.cpp
     src/rate_limiter.cpp
     src/detail/request_context.cpp
+    src/data_client.cpp
+    src/data_client_awaitable.cpp
     src/trading_client.cpp
     src/trading_client_awaitable.cpp
 )

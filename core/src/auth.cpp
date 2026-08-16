@@ -18,6 +18,21 @@ credentials credentials::from_env() {
     return c;
 }
 
+credentials credentials::from_env(environment env) {
+    if (env == environment::paper) {
+        credentials paper;
+        paper.api_key_id = get_env("APCA_PAPER_API_KEY_ID");
+        paper.api_secret_key = get_env("APCA_PAPER_API_SECRET_KEY");
+        paper.oauth_token = get_env("APCA_PAPER_API_OAUTH_TOKEN");
+        // Only use the paper pair when it is actually configured; otherwise fall back so
+        // a single-account setup keeps working with just the unprefixed variables.
+        if (!paper.empty()) {
+            return paper;
+        }
+    }
+    return from_env();
+}
+
 header_list credentials::trading_headers() const {
     if (uses_oauth()) {
         return {{"Authorization", "Bearer " + oauth_token}};
