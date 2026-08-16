@@ -68,8 +68,10 @@ struct corporate_action {
 
     /// Cash dividends, cash mergers, redemptions and partial calls.
     std::optional<double> cash_rate;
-    std::string special;                ///< cash dividends: "true"/"false" on the wire
-    std::string foreign;
+    /// Cash dividends. Alpaca sends these as JSON booleans, not as the "true"/"false"
+    /// strings most of this endpoint's other scalars use.
+    bool special = false;
+    bool foreign = false;
     /// Splits, mergers, name changes and spin-offs.
     std::string old_symbol;
     std::string new_symbol;
@@ -104,8 +106,11 @@ inline void from_json(const json &j, corporate_action &c) {
     OPTIONAL_DOUBLE_FROM_JSON(j, c, new_rate);
     OPTIONAL_DOUBLE_FROM_JSON(j, c, cash_rate);
 
-    VARIABLE_FROM_JSON(j, c, special);
-    VARIABLE_FROM_JSON(j, c, foreign);
+    // BOOL_FROM_JSON, not VARIABLE_FROM_JSON: these arrive as real booleans, and reading
+    // them as strings threw inside the macro, which logged and left both flags silently
+    // unset on every cash dividend.
+    BOOL_FROM_JSON(j, c, special);
+    BOOL_FROM_JSON(j, c, foreign);
     VARIABLE_FROM_JSON(j, c, old_symbol);
     VARIABLE_FROM_JSON(j, c, new_symbol);
     VARIABLE_FROM_JSON(j, c, source_symbol);

@@ -40,7 +40,10 @@ function(alpaca_add_test_target tgt)
     target_link_libraries(${tgt} PRIVATE slick::net slick::logger GTest::gtest_main)
     alpaca_set_target_options(${tgt})
     set_target_properties(${tgt} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
-    gtest_discover_tests(${tgt} DISCOVERY_TIMEOUT 30)
+    # 30s is not enough when the build tree sits on a network drive: launching the test
+    # binary to enumerate its cases intermittently overran it and failed the build with
+    # MSB3073, long after every binary had already linked.
+    gtest_discover_tests(${tgt} DISCOVERY_TIMEOUT 120)
 endfunction()
 
 if (BUILD_ALPACA_CORE)
@@ -54,6 +57,9 @@ if (BUILD_ALPACA_CORE)
         data_model_tests.cpp
         data_query_tests.cpp
         data_integration_tests.cpp
+        streaming_model_tests.cpp
+        streaming_stream_tests.cpp
+        streaming_integration_tests.cpp
     )
     target_link_libraries(alpaca_tests PRIVATE slick::alpaca-cpp)
 endif()

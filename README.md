@@ -8,9 +8,9 @@
 A modern C++20 SDK for [alpaca.markets](https://alpaca.markets) — Trading API, Market Data API,
 Broker API, and every streaming interface.
 
-> **Status: Phase 2 of 6.** The Trading API (v2) and Market Data API are complete, each
-> with both synchronous and coroutine clients. Streaming, the Broker library and the
-> options-streaming library are being added in subsequent phases — see [Roadmap](#roadmap).
+> **Status: Phase 3 of 6.** The Trading API (v2), the Market Data API and the JSON
+> websocket streams are complete. The Broker library and the options-streaming library
+> are being added in subsequent phases — see [Roadmap](#roadmap).
 
 ## Three libraries, one repo
 
@@ -246,6 +246,78 @@ asio::awaitable<void> run() {
 
 `data_client_awaitable` does the same for the Market Data API.
 
+### Streaming
+
+Four websocket streams: `stock_data_stream`, `crypto_data_stream`, `news_stream` and
+`trade_update_stream`. Messages are delivered by **callback, on the websocket service
+thread**, with no intermediate queue.
+
+```cpp
+#include <alpaca/streaming/stock_data_stream.hpp>
+
+alpaca::stock_data_stream stream({}, alpaca::data_feed::iex);
+
+stream.on_trade([](const std::string &symbol, const alpaca::trade &t) {
+    std::cout << symbol << ' ' << t.price << " x " << t.size << '\n';
+});
+stream.on_bar([](const std::string &symbol, const alpaca::bar &b) { /* ... */ });
+
+stream.subscribe_trades({"AAPL", "MSFT"});
+stream.subscribe_bars({"AAPL"});
+
+stream.connect();      // blocks until authenticated
+```
+
+Two rules follow from delivering on the service thread, and the SDK cannot enforce
+either:
+
+- **Register handlers before `connect()`.** They are read without a lock on the message
+  path, so attaching one to a live stream is a data race.
+- **Do not block inside a handler.** A slow handler stalls the socket and Alpaca will
+  eventually drop the connection. Hand slow work to your own thread.
+
+Trades, quotes, bars, order books and news articles arrive as the *same* types the REST
+client returns — `alpaca::trade`, `quote`, `bar`, `orderbook`, `news_article` — because
+the stream sends the same wire keys. The symbol is passed alongside rather than inside,
+since those REST types are keyed by symbol at the map level. Only the payloads with no
+REST equivalent (`trading_status`, `luld`, `trade_correction`, `trade_cancel_error`,
+`imbalance`) are streaming-specific types.
+
+Dropped connections are re-established, re-authenticated and re-subscribed automatically:
+
+```cpp
+stream.set_reconnect_policy({true, 500, 30000, 0});   // on, 0.5s→30s backoff, forever
+stream.on_disconnected([] { std::cerr << "reconnecting\n"; });
+stream.on_error([](const alpaca::stream_error &e) {   // an Alpaca {"T":"error"} frame
+    std::cerr << e.code << ": " << e.message << '\n';
+});
+```
+
+The account stream carries order lifecycle events, with the same `alpaca::order` the
+REST API returns embedded in each one:
+
+```cpp
+#include <alpaca/streaming/trade_update_stream.hpp>
+
+alpaca::trade_update_stream updates;      // paper by default
+
+updates.on_trade_update([](const alpaca::trade_update &u) {
+    std::cout << alpaca::to_string(u.event) << ' ' << u.order.symbol;
+    if (u.price) { std::cout << " @ " << *u.price; }   // only set on executions
+    std::cout << '\n';
+});
+
+updates.connect();
+```
+
+Alpaca's synthetic `test` feed streams `FAKEPACA` around the clock, which is the only way
+to exercise a stream outside market hours:
+
+```cpp
+alpaca::stock_data_stream s({}, alpaca::stock_data_stream::test_feed_url());
+s.subscribe_trades({"FAKEPACA"});
+```
+
 ### Timestamps
 
 Every timestamp is normalised to **nanoseconds since the Unix epoch** (`uint64_t`), parsed
@@ -338,13 +410,22 @@ Available on both `data_client` and `data_client_awaitable`. Timestamps are nano
 symbol-keyed responses come back as `std::unordered_map`, and pagination merges per symbol
 rather than overwriting.
 
+### Streams
+
+| Stream | Channels |
+|---|---|
+| `stock_data_stream` | `trades`, `quotes`, `bars`, `updatedBars`, `dailyBars`, `statuses`, `lulds`, `imbalances`, plus corrections and cancel/error prints |
+| `crypto_data_stream` | `trades`, `quotes`, `bars`, `updatedBars`, `dailyBars`, `orderbooks` |
+| `news_stream` | `news` |
+| `trade_update_stream` | account order lifecycle events |
+
 ## Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Foundation + Trading API v2 | ✅ complete |
 | 2 | Market Data API (stocks, crypto, options REST, news, screener, corporate actions, forex) | ✅ complete |
-| 3 | JSON streaming — trade updates, stocks, crypto, news | planned |
+| 3 | JSON streaming — trade updates, stocks, crypto, news | ✅ complete |
 | 4 | `alpaca-options-streaming-cpp` — opra / indicative msgpack streams | planned |
 | 5 | `alpaca-broker-cpp` — Broker API v1 + SSE events | planned |
 | 6 | Examples, CI matrix, vcpkg ports | planned |
@@ -367,8 +448,10 @@ The suite has two tiers:
   unprefixed pair if that holds paper keys) and only ever talks to paper trading; orders are
   placed far from the market and cancelled in teardown. The market data group is read-only,
   pinned to the IEX feed, and runs with either paper or live keys since
-  `data.alpaca.markets` is not account-scoped. Each group probes once at start-up and skips
-  as a whole with the reason if it cannot reach the API, rather than failing test by test.
+  `data.alpaca.markets` is not account-scoped. The streaming group connects to the
+  synthetic `v2/test` feed so it does not depend on the market being open. Each group
+  probes once at start-up and skips as a whole with the reason if it cannot reach the
+  API, rather than failing test by test.
 
 ```bash
 ./build/tests/alpaca_tests --gtest_filter=-*Integration*   # offline only
@@ -382,6 +465,7 @@ Built with `-DBUILD_ALPACA_EXAMPLES=ON` into `build/examples/`.
 |---|---|
 | `trading_overview` | Read-only: account, clock, positions, open orders. Places no orders. |
 | `market_data_overview` | Read-only: stock snapshot, daily bars, a crypto order book, recent news. Free-tier endpoints only. |
+| `stream_market_data` | Live trades, quotes and bars over websockets. Defaults to the synthetic test feed so it works outside market hours; pass symbols to use IEX. |
 | `place_and_cancel_order` | Full order lifecycle on paper — submit a resting limit order, read it back, replace, cancel. Refuses to run against a live account. |
 
 ## License

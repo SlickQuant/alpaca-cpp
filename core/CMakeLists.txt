@@ -7,6 +7,12 @@ add_library(alpaca-cpp STATIC
     src/data_client_awaitable.cpp
     src/trading_client.cpp
     src/trading_client_awaitable.cpp
+    src/streaming/stream_base.cpp
+    src/streaming/data_stream_base.cpp
+    src/streaming/stock_data_stream.cpp
+    src/streaming/crypto_data_stream.cpp
+    src/streaming/news_stream.cpp
+    src/streaming/trade_update_stream.cpp
 )
 add_library(slick::alpaca-cpp ALIAS alpaca-cpp)
 

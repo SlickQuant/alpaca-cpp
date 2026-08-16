@@ -39,6 +39,12 @@
 #include <alpaca/data/timeframe.hpp>
 #include <alpaca/data/trade.hpp>
 
+#include <alpaca/streaming/crypto_data_stream.hpp>
+#include <alpaca/streaming/news_stream.hpp>
+#include <alpaca/streaming/stock_data_stream.hpp>
+#include <alpaca/streaming/stream_message.hpp>
+#include <alpaca/streaming/trade_update_stream.hpp>
+
 #include <alpaca/data_client.hpp>
 #include <alpaca/data_client_awaitable.hpp>
 #include <alpaca/trading_client.hpp>

@@ -411,6 +411,49 @@ TEST(CorporateActionModel, EveryGroupNameMapsToAKnownType) {
     }
 }
 
+TEST(CorporateActionModel, CashDividendFlagsAreBooleansOnTheWire) {
+    // Regression: `special` and `foreign` were modelled as strings on the assumption
+    // they arrived as "true"/"false". Alpaca sends real JSON booleans, so parsing threw
+    // inside the extraction macro — which logs and moves on — and both flags came back
+    // unset on every cash dividend. This is a verbatim payload from the live endpoint.
+    const json j = json::parse(R"({
+        "cusip":"037833100","ex_date":"2024-02-09","foreign":false,
+        "id":"35849a16-e94e-4f9a-b66f-a1333d6289af","payable_date":"2024-02-15",
+        "process_date":"2024-02-15","rate":0.24,"record_date":"2024-02-12",
+        "special":false,"symbol":"AAPL"
+    })");
+
+    corporate_action c;
+    from_json(j, c);
+
+    EXPECT_EQ(c.symbol, "AAPL");
+    EXPECT_FALSE(c.special);
+    EXPECT_FALSE(c.foreign);
+    EXPECT_GT(c.ex_date_ns, 0ull);
+}
+
+TEST(CorporateActionModel, CashDividendFlagsParseWhenTrue) {
+    const json j = json::parse(R"({"symbol":"XYZ","special":true,"foreign":true})");
+
+    corporate_action c;
+    from_json(j, c);
+
+    EXPECT_TRUE(c.special);
+    EXPECT_TRUE(c.foreign);
+}
+
+TEST(CorporateActionModel, CashDividendFlagsAlsoAcceptStringForm) {
+    // bool_from_json takes either spelling, so a wire change back to strings would not
+    // silently reintroduce the original bug.
+    const json j = json::parse(R"({"symbol":"XYZ","special":"true","foreign":"false"})");
+
+    corporate_action c;
+    from_json(j, c);
+
+    EXPECT_TRUE(c.special);
+    EXPECT_FALSE(c.foreign);
+}
+
 // ---------------------------------------------------------------------------
 // Forex and fixed income
 // ---------------------------------------------------------------------------

@@ -34,6 +34,10 @@ struct orderbook {
     uint64_t timestamp = 0;                 ///< `t` — nanoseconds since the Unix epoch
     std::vector<orderbook_level> bids;      ///< `b`
     std::vector<orderbook_level> asks;      ///< `a`
+    /// `r` — streams only. Marks the full snapshot Alpaca sends after a (re)connect, so
+    /// a consumer maintaining its own book knows to discard what it had. The REST
+    /// endpoint always answers a complete book, and leaves this false.
+    bool reset = false;
 
     double best_bid() const noexcept { return bids.empty() ? 0. : bids.front().price; }
     double best_ask() const noexcept { return asks.empty() ? 0. : asks.front().price; }
@@ -48,6 +52,7 @@ inline void from_json(const json &j, orderbook &o) {
     if (j.contains("a") && j["a"].is_array()) {
         o.asks = j["a"].get<std::vector<orderbook_level>>();
     }
+    BOOL_FROM_JSON_KEY(j, o, reset, "r");
 }
 
 using orderbooks_by_symbol = symbol_map<orderbook>;

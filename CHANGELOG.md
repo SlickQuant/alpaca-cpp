@@ -29,6 +29,51 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   form always read the live variables even when constructing a paper client. Passing
   credentials explicitly behaves exactly as before.
 
+### Added — JSON websocket streams
+
+- `alpaca::stock_data_stream`, `crypto_data_stream`, `news_stream` and
+  `trade_update_stream`, covering every JSON stream Alpaca serves.
+- Messages are delivered by callback on the websocket service thread with no
+  intermediate queue, so the message path allocates nothing beyond the parse and takes no
+  lock. The cost is a contract the SDK cannot enforce: handlers must be registered before
+  `connect()`, and must not block.
+- Trades, quotes, bars, order books and news articles are delivered as the existing REST
+  models rather than parallel `stream_*` types — the streams send the same wire keys, so
+  `alpaca::trade`, `quote`, `bar`, `orderbook` and `news_article` parse them unchanged.
+  The symbol is passed as a separate handler argument, which is the one shape that works
+  for both those types and the stream-only ones.
+- `trading_status`, `luld`, `trade_correction`, `trade_cancel_error` and `imbalance` are
+  new because they have no REST equivalent.
+- `trade_update` embeds the same `alpaca::order` the REST API returns, so a streamed
+  order can be handed to code written against `trading_client`. Its `price`, `qty` and
+  `position_qty` are `std::optional`: they are absent on non-execution events, and a
+  defaulted 0 would read as a genuine zero-price fill.
+- Dropped connections are reconnected with capped exponential backoff, then
+  re-authenticated and re-subscribed from the client's recorded subscription set.
+  Subscribing before `connect()` is supported and is the usual pattern.
+- Alpaca reports protocol failures in-band as `{"T":"error"}` frames; these reach
+  `on_error` rather than raising, because throwing out of the read loop would take the
+  connection down with it. An error arriving before the handshake completes also fails
+  `connect()` immediately instead of letting it sit out a timeout whose outcome is
+  already decided — rejected credentials return in milliseconds rather than seconds.
+- `stock_data_stream::test_feed_url()` reaches the synthetic `v2/test` feed, which
+  streams FAKEPACA around the clock — the only way to exercise a stream outside market
+  hours.
+- 38 further offline tests plus a 9-test streaming integration group pinned to the test
+  feed.
+- A `stream_market_data` example.
+
+### Fixed
+
+- `corporate_action::special` and `foreign` are `bool` rather than `std::string`. Alpaca
+  sends them as JSON booleans, not as the `"true"`/`"false"` strings the model assumed, so
+  extraction threw inside the macro — which logs and continues — and both flags came back
+  unset on every cash dividend. Found by reading the error log of an otherwise green
+  integration run.
+- `gtest_discover_tests` now allows 120 s rather than 30 s. Launching the test binary to
+  enumerate its cases intermittently overran the old limit on a build tree hosted on a
+  network drive, failing the build with MSB3073 after every binary had already linked.
+
 ### Added — Market Data API
 
 - `alpaca::data_client` and `alpaca::data_client_awaitable`, with identical method sets,
