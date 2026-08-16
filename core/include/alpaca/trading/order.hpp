@@ -14,9 +14,9 @@
 #include <alpaca/common.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// An order as returned by the Trading API. `GET`/`POST /v2/orders`.
 ///

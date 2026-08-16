@@ -16,9 +16,9 @@
 #include <nlohmann/json.hpp>
 #include <slick/net/logging.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+    
+using json = nlohmann::json;
 
 // ---------------------------------------------------------------------------
 // Environment

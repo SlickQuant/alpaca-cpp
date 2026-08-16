@@ -13,9 +13,9 @@
 
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// An OHLCV aggregate.
 ///
