@@ -4,180 +4,93 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-08-18
 
-### Added — separate paper and live credentials
+Initial release: a C++20 SDK for the Alpaca Trading API v2, the Market Data API, and every
+JSON websocket stream. Every client comes in blocking and coroutine form
+(`trading_client` / `trading_client_awaitable`) with identical method sets and semantics.
 
-- `credentials::from_env(environment)` resolves the pair matching the target environment:
-  `environment::paper` reads `APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY` (plus
-  `APCA_PAPER_API_OAUTH_TOKEN`) and falls back to the unprefixed variables when they are
-  unset, while live and sandbox always read the unprefixed pair. Paper and live keys are not
-  interchangeable — a live key is rejected by `paper-api.alpaca.markets` with HTTP 401 — so
-  this lets both sit in the environment at once without either leaking into the other.
-- A half-configured paper pair (key set, secret missing) falls back rather than sending a
-  request with an empty secret that would fail as a confusing 401.
-- `credentials::resolve(creds, env)` fills in empty credentials from the environment and
-  leaves anything explicitly supplied untouched.
-- 7 further offline tests covering the precedence rules, using a scoped environment-variable
-  helper so they assert against a known environment rather than the developer's own.
+### Added
 
-### Changed
+**Trading API v2**
 
-- The client constructors take `credentials creds = {}` instead of eagerly calling
-  `credentials::from_env()` in the default argument, and resolve against their environment
-  in the constructor body — a default argument cannot see the `env` parameter, so the old
-  form always read the live variables even when constructing a paper client. Passing
-  credentials explicitly behaves exactly as before.
+- Account, account configurations, portfolio history, account activities, orders, positions,
+  assets, option contracts, option exercise, watchlists, market calendar and clock, crypto
+  funding, and short locates.
+- Market, limit, stop, stop-limit and trailing-stop orders in `simple` / `bracket` / `oco` /
+  `oto` / `mleg` classes, plus notional orders and factory functions for the common shapes.
+  Callers work in doubles; the SDK handles Alpaca's string-typed numerics and never emits
+  scientific notation.
 
-### Added — JSON websocket streams
+**Market Data API**
 
-- `alpaca::stock_data_stream`, `crypto_data_stream`, `news_stream` and
-  `trade_update_stream`, covering every JSON stream Alpaca serves.
-- Messages are delivered by callback on the websocket service thread with no
-  intermediate queue, so the message path allocates nothing beyond the parse and takes no
-  lock. The cost is a contract the SDK cannot enforce: handlers must be registered before
-  `connect()`, and must not block.
-- Trades, quotes, bars, order books and news articles are delivered as the existing REST
-  models rather than parallel `stream_*` types — the streams send the same wire keys, so
-  `alpaca::trade`, `quote`, `bar`, `orderbook` and `news_article` parse them unchanged.
-  The symbol is passed as a separate handler argument, which is the one shape that works
-  for both those types and the stream-only ones.
-- `trading_status`, `luld`, `trade_correction`, `trade_cancel_error` and `imbalance` are
-  new because they have no REST equivalent.
-- `trade_update` embeds the same `alpaca::order` the REST API returns, so a streamed
-  order can be handed to code written against `trading_client`. Its `price`, `qty` and
-  `position_qty` are `std::optional`: they are absent on non-execution events, and a
-  defaulted 0 would read as a genuine zero-price fill.
-- Dropped connections are reconnected with capped exponential backoff, then
-  re-authenticated and re-subscribed from the client's recorded subscription set.
-  Subscribing before `connect()` is supported and is the usual pattern.
-- Alpaca reports protocol failures in-band as `{"T":"error"}` frames; these reach
-  `on_error` rather than raising, because throwing out of the read loop would take the
-  connection down with it. An error arriving before the handshake completes also fails
-  `connect()` immediately instead of letting it sit out a timeout whose outcome is
-  already decided — rejected credentials return in milliseconds rather than seconds.
-- `stock_data_stream::test_feed_url()` reaches the synthetic `v2/test` feed, which
-  streams FAKEPACA around the clock — the only way to exercise a stream outside market
-  hours.
-- 38 further offline tests plus a 9-test streaming integration group pinned to the test
-  feed.
-- A `stream_market_data` example.
-
-### Fixed
-
-- `get_env` strips surrounding whitespace, so a credential exported with a trailing
-  newline works. Without this the failure was hard to place: the REST APIs accepted the
-  value, because it goes into an HTTP header and the stray byte is trimmed in transit,
-  while the websocket streams rejected it with a bare 401, because there the secret is
-  embedded in a JSON string and compared exactly. The split behaviour pointed at the
-  stream client rather than at the environment. No Alpaca key or secret legitimately
-  contains leading or trailing whitespace; interior whitespace is preserved.
-- `account::options_approved_level`, `options_trading_level` and `crypto_tier`, and
-  `option_contract::ppind`, now populate. Alpaca quotes most Trading API scalars but sends
-  these as bare numbers and booleans, so the string-typed extractors threw inside the
-  macro — which logs and continues — and every real account came back with all three
-  unset. `string_from_json` and the `STRING_FROM_JSON` /
-  `ENUM_FROM_JSON_SCALAR_WITH` macros accept either spelling, matching how the numeric
-  helpers already tolerate both.
-- `corporate_action::special` and `foreign` are `bool` rather than `std::string`. Alpaca
-  sends them as JSON booleans, not as the `"true"`/`"false"` strings the model assumed, so
-  extraction threw inside the macro — which logs and continues — and both flags came back
-  unset on every cash dividend. Found by reading the error log of an otherwise green
-  integration run.
-- `gtest_discover_tests` now allows 120 s rather than 30 s. Launching the test binary to
-  enumerate its cases intermittently overran the old limit on a build tree hosted on a
-  network drive, failing the build with MSB3073 after every binary had already linked.
-
-### Added — Market Data API
-
-- `alpaca::data_client` and `alpaca::data_client_awaitable`, with identical method sets,
-  covering stock bars/trades/quotes/auctions/snapshots and their `latest*` forms, condition
-  and exchange code maps, crypto bars/trades/quotes/snapshots/order books, options
-  bars/trades/latest quotes/snapshots and the option chain, news, the most-actives and
-  movers screeners, corporate actions, forex rates, fixed income prices and quotes, and
-  logos.
-- `alpaca::timeframe` with the documented intervals as constants and a `valid()` check
-  against Alpaca's per-unit limits (minutes 1-59, hours 1-23, 1 for day/week/month).
-- Shared query bases (`history_query`, `bar_query`, `latest_query` and the crypto/option
-  variants) so the symbols/window/paging/feed set is declared once.
-- Every historical method follows `next_page_token` to completion and merges pages **per
-  symbol**; a `_page` twin returns a single page for open-ended windows where fetching
-  everything would be unbounded.
-- Models normalise the Market Data API's single-letter wire keys to spelled-out fields, and
-  absorb the places where the same key means different things — options send `c` as one
-  condition string where stocks send an array, and on the auctions endpoint `c` is the
-  closing-auction array entirely.
-- Option greeks and implied volatility are `std::optional`: Alpaca omits them for contracts
-  it cannot price, and a defaulted delta of 0 would be indistinguishable from a genuinely
-  delta-neutral position.
+- Stock bars/trades/quotes/auctions/snapshots and their `latest*` forms, condition and
+  exchange maps, crypto bars/trades/quotes/snapshots/order books, options bars/trades/latest
+  quotes/snapshots and the option chain, news, most-actives and movers screeners, corporate
+  actions, forex rates, fixed income, and logos.
+- `alpaca::timeframe` with the documented intervals and a `valid()` check against Alpaca's
+  per-unit limits.
+- Historical methods follow `next_page_token` to completion and merge pages **per symbol**;
+  a `_page` twin returns a single page for open-ended windows.
 - Corporate actions are flattened from Alpaca's fifteen per-type arrays into one vector
-  tagged with a `corporate_action_type`, rather than fifteen parallel collections.
-- `request_context::get_raw` / `async_get_raw` for endpoints that do not answer JSON; the
-  logos endpoint serves PNG bytes. Status checking, rate limiting and retry are unchanged —
-  only the parse step is skipped.
-- 42 further offline tests plus a 20-test read-only market-data integration group pinned to
-  the IEX feed, which runs with either paper or live keys.
-- A `market_data_overview` example covering a stock snapshot, a bounded window of daily
-  bars, a crypto order book and recent news — every call on it works on a free account.
+  tagged with a `corporate_action_type`.
 
-### Added — foundation and Trading API v2
+**Streaming**
 
-**Build system**
-- Three independently buildable libraries in one repo: `alpaca-cpp` (core),
-  `alpaca-broker-cpp`, and `alpaca-options-streaming-cpp`, each with its own install/export
-  set and CMake package config so each can ship as a separate vcpkg port.
-- `BUILD_ALPACA_CORE` / `_BROKER` / `_OPTIONS_STREAMING` / `_TESTS` / `_EXAMPLES` options.
-  With `BUILD_ALPACA_CORE=OFF` the satellite libraries resolve core through
-  `find_package(alpaca-cpp CONFIG REQUIRED)`.
-- msgpack is confined to the options-streaming library and linked `PRIVATE`, so it is not a
-  dependency of the base SDK nor of that library's consumers.
+- `stock_data_stream`, `crypto_data_stream`, `news_stream` and `trade_update_stream`.
+- Messages are delivered by callback on the websocket thread with no intermediate queue, so
+  the message path takes no lock and allocates nothing beyond the parse. The tradeoff is a
+  contract the SDK cannot enforce: **handlers must be registered before `connect()`, and must
+  not block.**
+- Trades, quotes, bars, order books and news arrive as the same REST models, so streamed data
+  can be handed to code written against `trading_client`. Stream-only types
+  (`trading_status`, `luld`, `trade_correction`, `trade_cancel_error`, `imbalance`) are new.
+- Dropped connections reconnect with capped exponential backoff, then re-authenticate and
+  re-subscribe from the recorded subscription set. Subscribing before `connect()` is
+  supported and is the usual pattern.
+- In-band `{"T":"error"}` frames reach `on_error` rather than raising; one arriving during the
+  handshake fails `connect()` immediately, so rejected credentials return in milliseconds.
+- `stock_data_stream::test_feed_url()` reaches the synthetic `v2/test` feed, the only way to
+  exercise a stream outside market hours.
 
 **Core**
-- `alpaca::credentials` covering all three Alpaca authentication schemes: `APCA-API-*`
-  headers, Broker HTTP Basic, and OAuth bearer tokens; defaults read from
-  `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` / `APCA_API_OAUTH_TOKEN`.
-- `alpaca::api_error`, `parse_error` and `config_error`. Non-2xx responses raise rather than
-  returning an empty value, so "no results" and "request failed" are never ambiguous.
-- `alpaca::detail::request_context` — the single path every REST call takes, owning URL
-  joining, auth headers, rate limiting, retry with exponential backoff, status checking,
-  JSON parsing, error mapping, and `next_page_token` pagination, in both blocking and
-  coroutine form.
+
+- `alpaca::credentials` covering all three auth schemes (`APCA-API-*` headers, Broker HTTP
+  Basic, OAuth bearer). `from_env(environment)` resolves paper and live separately —
+  `environment::paper` prefers `APCA_PAPER_API_*` and falls back to the unprefixed pair — so
+  both key sets can sit in the environment without either leaking into the other. Paper and
+  live keys are not interchangeable.
+- `detail::request_context` — the single path every REST call takes, owning URL joining, auth,
+  rate limiting, retry with backoff, status checking, JSON parsing, error mapping and
+  pagination, in both blocking and coroutine form.
 - `alpaca::rate_limiter` — lock-free GCRA token bucket (compare-exchange on one atomic word,
-  no mutex), defaulting to Alpaca's 200 requests/minute and honouring server-side 429s.
-- `alpaca::query_builder` — optional skipping, vector-to-CSV flattening, percent-encoding,
-  and in-place `page_token` replacement for pagination.
-- Allocation-free RFC-3339 parsing and formatting normalising every timestamp to nanoseconds
-  since the Unix epoch; handles absent/milli/micro/nano fractions, `Z` and numeric UTC
-  offsets, and bare dates.
-- Enum definitions generated from X-macro lists, each with a wire-format `to_string` and a
-  parser that maps unrecognised values to `unknown` rather than throwing.
+  no mutex), defaulting to 200 requests/minute and honouring server-side 429s.
+- `api_error`, `parse_error` and `config_error`. Non-2xx responses raise rather than returning
+  an empty value, so "no results" and "request failed" are never ambiguous.
+- Allocation-free RFC-3339 parsing and formatting, normalising every timestamp to nanoseconds
+  since the Unix epoch.
+- Enums generated from X-macro lists, mapping unrecognised wire values to `unknown` rather
+  than throwing.
+- Nullable numerics — limit prices, option greeks, streamed fill quantities — are
+  `std::optional`, keeping "absent" distinct from a genuine zero.
 
-**Trading API (v2)**
-- `alpaca::trading_client` and `alpaca::trading_client_awaitable`, with identical method
-  sets and semantics, covering account, account configurations, portfolio history, account
-  activities, orders, positions, assets, option contracts, option exercise and
-  do-not-exercise, watchlists (by id and by name), market calendar and clock, crypto funding
-  wallets/transfers/whitelists, and short locates.
-- Order types: market, limit, stop, stop-limit and trailing stop (price or percent), with
-  `simple` / `bracket` / `oco` / `oto` / `mleg` order classes, notional orders, and factory
-  functions for the common shapes. Callers work in doubles; the SDK handles Alpaca's
-  string-typed numeric wire format and never emits scientific notation.
-- Nullable numeric fields are modelled as `std::optional`, keeping "no limit price" distinct
-  from "a limit price of zero".
+**Build and packaging**
 
-**Tests**
-- 117 offline unit tests that need no credentials and no network, covering timestamp parsing
-  edge cases, query encoding, number formatting, error mapping, base64, concurrent
-  rate-limiter accounting, and `from_json` against captured Alpaca payload shapes.
-- Paper-only integration tests, skipped as a group with a diagnostic when the configured
-  credentials cannot reach a paper account.
+- The repo is structured for three independently installable libraries, each with its own
+  export set and CMake package config so each can ship as a separate vcpkg port. **0.1.0 ships
+  `alpaca-cpp` (core) only**; `alpaca-broker-cpp` and `alpaca-options-streaming-cpp` are
+  wired into the build but not yet implemented.
+- `BUILD_ALPACA_CORE` / `_BROKER` / `_OPTIONS_STREAMING` / `_TESTS` / `_EXAMPLES` options.
+  With `BUILD_ALPACA_CORE=OFF` the satellites resolve core via `find_package`.
+- msgpack stays confined to the options-streaming library, so it is not a dependency of the
+  base SDK.
 
-### Fixed
+**Tests and examples**
 
-- `_WIN32_WINNT` is now a `PUBLIC` compile definition on the exported target rather than a
-  build-tree-only `add_definitions()`. Without this, downstream consumers compiled the
-  Boost.Asio headers reached through slick-net as Windows 7 while the library itself was
-  built for Windows 10.
-- `CMAKE_SUPPRESS_REGENERATION` is now scoped to the Visual Studio generator. Under Ninja it
-  also removed the rule that regenerates `build.ninja`, so edits to `CMakeLists.txt` were
-  silently ignored.
+- 212 offline unit tests needing no credentials and no network, plus 50 integration tests:
+  read-only market data on the IEX feed, streaming pinned to the test feed, and paper-only
+  trading, each skipped as a group with a diagnostic when credentials cannot reach them.
+- Four examples: `trading_overview`, `place_and_cancel_order`, `market_data_overview` and
+  `stream_market_data`.
+
+[0.1.0]: https://github.com/SlickQuant/alpaca-cpp/releases/tag/v0.1.0
