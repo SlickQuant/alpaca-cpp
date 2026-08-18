@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release (e.g. v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  VCPKG_PACKAGES: "nlohmann-json openssl boost-beast boost-context"
+
+jobs:
+  # Fails the release before anything is built if the tag, CMake project version and
+  # CHANGELOG disagree — a mismatch is much cheaper to fix now than after publishing.
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve tag and version
+        id: resolve
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG (version $VERSION)"
+
+      - name: Check tag matches project(VERSION)
+        run: |
+          VERSION="${{ steps.resolve.outputs.version }}"
+          CMAKE_VERSION=$(sed -n 's/^[[:space:]]*VERSION[[:space:]]\{1,\}\([0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}\).*/\1/p' CMakeLists.txt | head -1)
+          if [ "$VERSION" != "$CMAKE_VERSION" ]; then
+            echo "::error::tag $VERSION does not match project(VERSION $CMAKE_VERSION) in CMakeLists.txt"
+            exit 1
+          fi
+          echo "version matches CMakeLists.txt: $CMAKE_VERSION"
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          VERSION="${{ steps.resolve.outputs.version }}"
+          awk -v hdr="## [$VERSION]" '
+            index($0, hdr) == 1             { found = 1; next }
+            found && index($0, "## [") == 1 { exit }
+            found                           { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::no '## [$VERSION]' section found in CHANGELOG.md"
+            exit 1
+          fi
+          echo "--- release notes ---"; cat notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: notes.md
+
+  package:
+    needs: verify
+    name: Package ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x64
+            os: ubuntu-latest
+            triplet: x64-linux
+            generator: Ninja
+            vcpkg_cache: ~/.cache/vcpkg/archives
+            cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+          - label: windows-x64
+            os: windows-latest
+            triplet: x64-windows
+            generator: Visual Studio 17 2022
+            vcpkg_cache: ~/AppData/Local/vcpkg/archives
+            cmake_args: -A x64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+
+      - name: Install Ninja
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.vcpkg_cache }}
+          key: vcpkg-${{ matrix.triplet }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: vcpkg-${{ matrix.triplet }}-
+
+      - name: Install dependencies
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            VCPKG="$VCPKG_INSTALLATION_ROOT/vcpkg.exe"
+          else
+            VCPKG="$VCPKG_INSTALLATION_ROOT/vcpkg"
+          fi
+          "$VCPKG" install --triplet "${{ matrix.triplet }}" $VCPKG_PACKAGES
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -G "${{ matrix.generator }}" \
+            ${{ matrix.cmake_args }} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            -DBUILD_ALPACA_TESTS=ON \
+            -DBUILD_ALPACA_EXAMPLES=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # A tagged release should not ship a binary whose offline suites are failing.
+      - name: Test (offline suites)
+        run: |
+          ctest --test-dir build --build-config Release \
+            --output-on-failure --no-tests=error -E 'Integration'
+
+      - name: Install and archive
+        run: |
+          NAME="alpaca-cpp-${{ needs.verify.outputs.version }}-${{ matrix.label }}"
+          cmake --install build --config Release --prefix "stage/$NAME"
+          mkdir -p dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            (cd stage && 7z a "../dist/$NAME.zip" "$NAME")
+          else
+            tar -czf "dist/$NAME.tar.gz" -C stage "$NAME"
+          fi
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.label }}
+          path: dist/*
+
+  publish:
+    needs: [ verify, package ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${{ needs.verify.outputs.tag }}"
+          # A tag such as v0.2.0-rc1 is published as a prerelease.
+          case "$TAG" in
+            *-*) PRERELEASE=--prerelease ;;
+            *)   PRERELEASE= ;;
+          esac
+          gh release create "$TAG" \
+            --title "alpaca-cpp $TAG" \
+            --notes-file artifacts/release-notes/notes.md \
+            $PRERELEASE \
+            artifacts/package-*/*

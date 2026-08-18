@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Resolved through the vcpkg preinstalled on the runner image. Both nlohmann_json and
+  # OpenSSL are looked up with find_package(... CONFIG REQUIRED), and apt's libssl-dev
+  # ships no OpenSSLConfig.cmake, so vcpkg is required here rather than merely convenient.
+  # boost-beast/boost-context are for slick-net, which fetches from GitHub (see below).
+  VCPKG_PACKAGES: "nlohmann-json openssl boost-beast boost-context"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux GCC / Release
+            os: ubuntu-latest
+            triplet: x64-linux
+            generator: Ninja
+            build_type: Release
+            vcpkg_cache: ~/.cache/vcpkg/archives
+            cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+          - name: Linux GCC / Debug
+            os: ubuntu-latest
+            triplet: x64-linux
+            generator: Ninja
+            build_type: Debug
+            vcpkg_cache: ~/.cache/vcpkg/archives
+            cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+          - name: Linux Clang / Release
+            os: ubuntu-latest
+            triplet: x64-linux
+            generator: Ninja
+            build_type: Release
+            vcpkg_cache: ~/.cache/vcpkg/archives
+            cmake_args: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          - name: Windows MSVC / Release
+            os: windows-latest
+            triplet: x64-windows
+            generator: Visual Studio 17 2022
+            build_type: Release
+            vcpkg_cache: ~/AppData/Local/vcpkg/archives
+            cmake_args: -A x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # vcpkg writes built packages to this directory by default, so restoring it turns
+      # the (slow) boost/openssl builds into a copy on every run after the first.
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.vcpkg_cache }}
+          key: vcpkg-${{ matrix.triplet }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: vcpkg-${{ matrix.triplet }}-
+
+      - name: Install dependencies
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            VCPKG="$VCPKG_INSTALLATION_ROOT/vcpkg.exe"
+          else
+            VCPKG="$VCPKG_INSTALLATION_ROOT/vcpkg"
+          fi
+          "$VCPKG" install --triplet "${{ matrix.triplet }}" $VCPKG_PACKAGES
+
+      # slick-net, slick-logger and googletest are not public vcpkg ports; the build falls
+      # back to FetchContent for each, which in turn pulls slick-net's own SlickQuant deps.
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -G "${{ matrix.generator }}" \
+            ${{ matrix.cmake_args }} \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            -DBUILD_ALPACA_TESTS=ON \
+            -DBUILD_ALPACA_EXAMPLES=ON
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      # The six *Integration* suites need paper-trading and market-data credentials. They
+      # GTEST_SKIP() themselves when none are configured, so excluding them here is about
+      # not spending CI time on network round-trips that cannot assert anything.
+      # --no-tests=error catches a silently broken gtest_discover_tests step.
+      - name: Test (offline suites)
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ matrix.build_type }} \
+            --output-on-failure \
+            --no-tests=error \
+            -E 'Integration'
+
+  # Validates the exported package config: the install tree must be consumable through
+  # find_package(alpaca-cpp CONFIG) by a project that knows nothing about this source tree.
+  install-consume:
+    name: Install + consume
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-x64-linux-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: vcpkg-x64-linux-
+
+      - name: Install dependencies
+        run: |
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install --triplet x64-linux $VCPKG_PACKAGES
+
+      - name: Build and install to a staging prefix
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DBUILD_ALPACA_TESTS=OFF \
+            -DBUILD_ALPACA_EXAMPLES=OFF
+          cmake --build build --parallel
+          cmake --install build --prefix "$GITHUB_WORKSPACE/stage"
+
+      - name: Consume the installed package
+        run: |
+          mkdir -p consumer
+          cat > consumer/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.21)
+          project(consumer LANGUAGES CXX)
+          find_package(alpaca-cpp CONFIG REQUIRED)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE slick::alpaca-cpp)
+          EOF
+          cat > consumer/main.cpp <<'EOF'
+          #include <alpaca/alpaca.hpp>
+          int main() {
+              const alpaca::trading_client client{alpaca::credentials("key", "secret")};
+              return client.base_url().empty() ? 1 : 0;
+          }
+          EOF
+          cmake -S consumer -B consumer/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage"
+          cmake --build consumer/build --parallel
+          ./consumer/build/consumer

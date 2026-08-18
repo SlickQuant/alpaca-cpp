@@ -1,5 +1,6 @@
 # alpaca-cpp
 
+[![CI](https://github.com/SlickQuant/alpaca-cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/SlickQuant/alpaca-cpp/actions/workflows/ci.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Static Library](https://img.shields.io/badge/library-static-brightgreen.svg)](#building)

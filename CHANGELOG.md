@@ -87,7 +87,7 @@ JSON websocket stream. Every client comes in blocking and coroutine form
 
 **Tests and examples**
 
-- 212 offline unit tests needing no credentials and no network, plus 50 integration tests:
+- 213 offline unit tests needing no credentials and no network, plus 49 integration tests:
   read-only market data on the IEX feed, streaming pinned to the test feed, and paper-only
   trading, each skipped as a group with a diagnostic when credentials cannot reach them.
 - Four examples: `trading_overview`, `place_and_cancel_order`, `market_data_overview` and
