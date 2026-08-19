@@ -20,9 +20,10 @@
 #include <alpaca/auth.hpp>
 #include <alpaca/streaming/stream_message.hpp>
 
-using json = nlohmann::json;
 
 namespace alpaca::detail {
+
+using json = nlohmann::json;
 
 /// Where a stream is in its connect / authenticate / ready lifecycle.
 enum class stream_state : uint8_t {

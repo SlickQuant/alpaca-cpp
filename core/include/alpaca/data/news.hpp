@@ -14,9 +14,9 @@
 #include <alpaca/common.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// An image attached to a news article, in one of three sizes.
 struct news_image {

@@ -11,9 +11,9 @@
 #include <alpaca/data/bar.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// A bond price. `GET /v1beta1/fixed_income/latest/prices`.
 struct fixed_income_price {

@@ -13,9 +13,9 @@
 #include <alpaca/data/trade.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// Everything currently known about a symbol in one response.
 /// `GET /v2/stocks/snapshots` and the crypto equivalent.

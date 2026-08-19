@@ -14,9 +14,9 @@
 #include <alpaca/common.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 #define ALPACA_CORPORATE_ACTION_TYPE(X, N)                      \
     X(N, reverse_split,          "reverse_split")               \

@@ -12,9 +12,9 @@
 
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// One entry of `GET /v1beta1/screener/stocks/most-actives`.
 struct most_active {

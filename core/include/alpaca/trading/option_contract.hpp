@@ -14,9 +14,9 @@
 #include <alpaca/common.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// What one contract delivers on exercise. Non-standard contracts (post corporate action)
 /// can have several deliverables.

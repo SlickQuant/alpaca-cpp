@@ -13,9 +13,9 @@
 #include <alpaca/common.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// A tradable instrument. `GET /v2/assets` and `GET /v2/assets/{symbol_or_asset_id}`.
 struct asset {

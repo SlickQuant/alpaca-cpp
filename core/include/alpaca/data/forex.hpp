@@ -15,9 +15,9 @@
 #include <alpaca/data/bar.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// A currency-pair rate. `GET /v1beta1/forex/rates` and `/v1beta1/forex/latest/rates`.
 struct forex_rate {

@@ -13,9 +13,9 @@
 
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// A hard-to-borrow share locate. `GET`/`POST /v1/locates`.
 struct locate {

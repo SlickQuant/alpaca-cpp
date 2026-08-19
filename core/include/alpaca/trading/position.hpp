@@ -14,9 +14,9 @@
 #include <alpaca/trading/order.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// An open position. `GET /v2/positions` and `GET /v2/positions/{symbol_or_asset_id}`.
 struct position {

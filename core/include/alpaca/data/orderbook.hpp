@@ -12,10 +12,10 @@
 #include <alpaca/data/bar.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
 
+using json = nlohmann::json;
+    
 /// One price level of a crypto order book.
 struct orderbook_level {
     double price = 0.;      ///< `p`

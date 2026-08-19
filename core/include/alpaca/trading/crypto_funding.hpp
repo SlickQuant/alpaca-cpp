@@ -13,9 +13,9 @@
 
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// An on-chain deposit address. `GET /v2/wallets`.
 struct crypto_wallet {

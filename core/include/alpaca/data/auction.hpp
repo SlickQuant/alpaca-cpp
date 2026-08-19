@@ -13,9 +13,9 @@
 #include <alpaca/data/bar.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// One opening or closing auction print.
 struct auction_entry {

@@ -12,9 +12,9 @@
 
 #include <nlohmann/json.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca::detail {
+
+using json = nlohmann::json;
 
 /// Extracts an array-valued response into a vector, tolerating a null or absent body.
 /// A 204 or an unexpected shape yields an empty vector — a genuine failure has already

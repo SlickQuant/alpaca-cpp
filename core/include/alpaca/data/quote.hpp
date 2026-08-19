@@ -13,9 +13,9 @@
 #include <alpaca/data/bar.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// A top-of-book bid/ask pair. Shared by stocks, crypto and options; options send a single
 /// condition string where stocks send an array, and both are accepted.

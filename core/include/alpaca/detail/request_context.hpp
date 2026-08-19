@@ -17,10 +17,10 @@
 #include <alpaca/rate_limiter.hpp>
 #include <alpaca/utils.hpp>
 
+namespace alpaca::detail {
+
 namespace asio = boost::asio;
 using json = nlohmann::json;
-
-namespace alpaca::detail {
 
 /// Which authentication scheme a context applies to its requests.
 enum class auth_scheme : uint8_t {
