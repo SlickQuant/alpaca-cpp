@@ -85,6 +85,14 @@ JSON websocket stream. Every client comes in blocking and coroutine form
 - msgpack stays confined to the options-streaming library, so it is not a dependency of the
   base SDK.
 
+**Portability**
+
+- The coroutine watchlist methods build their JSON body into a named local rather than
+  passing an inline `json{{...}}` argument. An initializer_list temporary whose backing
+  array must survive a `co_await` crashes GCC 11 and 13 with an internal compiler error in
+  `morph_fn_to_coro`; GCC 14 compiles it. Both affected versions are inside the supported
+  range, so the SDK avoids the shape rather than raising its minimum compiler.
+
 **Tests and examples**
 
 - 213 offline unit tests needing no credentials and no network, plus 49 integration tests:

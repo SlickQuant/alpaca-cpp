@@ -214,16 +214,23 @@ asio::awaitable<watchlist> trading_client_awaitable::update_watchlist_by_name(
 
 asio::awaitable<watchlist> trading_client_awaitable::add_asset_to_watchlist(std::string watchlist_id,
                                                                             std::string symbol) const {
+    // The body is a named local rather than an inline `json{{"symbol", symbol}}` argument:
+    // an initializer_list temporary whose backing array has to survive a suspension point
+    // ICEs GCC 11 and 13 (build_special_member_call, cp/call.cc) inside morph_fn_to_coro.
+    // Fixed in GCC 14, but both are inside our supported range. Keep it hoisted.
+    const json body{{"symbol", symbol}};
     co_return to_model<watchlist>(
-        co_await ctx_.async_post(std::format("/v2/watchlists/{}", watchlist_id), json{{"symbol", symbol}}));
+        co_await ctx_.async_post(std::format("/v2/watchlists/{}", watchlist_id), body));
 }
 
 asio::awaitable<watchlist> trading_client_awaitable::add_asset_to_watchlist_by_name(
         std::string name, std::string symbol) const {
     query_builder q;
     q.add("name", name);
+    // Hoisted for the same reason as add_asset_to_watchlist above.
+    const json body{{"symbol", symbol}};
     co_return to_model<watchlist>(
-        co_await ctx_.async_post(std::string("/v2/watchlists:by_name") + q.str(), json{{"symbol", symbol}}));
+        co_await ctx_.async_post(std::string("/v2/watchlists:by_name") + q.str(), body));
 }
 
 asio::awaitable<watchlist> trading_client_awaitable::remove_asset_from_watchlist(

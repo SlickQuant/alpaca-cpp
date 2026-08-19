@@ -30,14 +30,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux GCC / Release
+          # Pinned rather than default-GCC on purpose: GCC 11 and 13 ICE on an
+          # initializer_list temporary held across a co_await (worked around in
+          # trading_client_awaitable.cpp), and GCC 14 does not. If this job followed the
+          # runner's default compiler, that regression guard would vanish silently the
+          # day ubuntu-latest moves to GCC 14.
+          - name: Linux GCC 13 / Release
             os: ubuntu-latest
             triplet: x64-linux
             generator: Ninja
             build_type: Release
             vcpkg_cache: ~/.cache/vcpkg/archives
-            cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
-          - name: Linux GCC / Debug
+            apt_packages: g++-13
+            cmake_args: -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13
+          # Follows the runner's default GCC, so newer releases get exercised too.
+          - name: Linux GCC (default) / Debug
             os: ubuntu-latest
             triplet: x64-linux
             generator: Ninja
@@ -65,6 +72,10 @@ jobs:
       - name: Install Ninja
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install pinned compiler
+        if: matrix.apt_packages != ''
+        run: sudo apt-get install -y ${{ matrix.apt_packages }}
 
       # vcpkg writes built packages to this directory by default, so restoring it turns
       # the (slow) boost/openssl builds into a copy on every run after the first.
