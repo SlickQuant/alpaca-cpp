@@ -92,6 +92,11 @@ JSON websocket stream. Every client comes in blocking and coroutine form
   array must survive a `co_await` crashes GCC 11 and 13 with an internal compiler error in
   `morph_fn_to_coro`; GCC 14 compiles it. Both affected versions are inside the supported
   range, so the SDK avoids the shape rather than raising its minimum compiler.
+- The test build probes whether `_Float128` is usable when `__SIZEOF_FLOAT128__` is
+  defined, and defines it to `__float128` when it is not. Clang sets that macro without
+  declaring the type, which makes a `std::format` visitor branch in slick-logger ill-formed
+  and breaks the test suite under Clang. The probe tests the condition rather than the
+  compiler id, so it lapses on its own once either side changes.
 
 **Tests and examples**
 

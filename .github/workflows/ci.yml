@@ -61,7 +61,8 @@ jobs:
           - name: Windows MSVC / Release
             os: windows-latest
             triplet: x64-windows
-            generator: Visual Studio 17 2022
+            # Empty: CMake selects the newest Visual Studio present on the runner.
+            generator: ""
             build_type: Release
             vcpkg_cache: ~/AppData/Local/vcpkg/archives
             cmake_args: -A x64
@@ -99,8 +100,9 @@ jobs:
       # back to FetchContent for each, which in turn pulls slick-net's own SlickQuant deps.
       - name: Configure
         run: |
-          cmake -S . -B build \
-            -G "${{ matrix.generator }}" \
+          GEN=()
+          if [ -n "${{ matrix.generator }}" ]; then GEN=(-G "${{ matrix.generator }}"); fi
+          cmake -S . -B build "${GEN[@]}" \
             ${{ matrix.cmake_args }} \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \

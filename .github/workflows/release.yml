@@ -87,7 +87,8 @@ jobs:
           - label: windows-x64
             os: windows-latest
             triplet: x64-windows
-            generator: Visual Studio 17 2022
+            # Empty: CMake selects the newest Visual Studio present on the runner.
+            generator: ""
             vcpkg_cache: ~/AppData/Local/vcpkg/archives
             cmake_args: -A x64
 
@@ -118,8 +119,9 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -S . -B build \
-            -G "${{ matrix.generator }}" \
+          GEN=()
+          if [ -n "${{ matrix.generator }}" ]; then GEN=(-G "${{ matrix.generator }}"); fi
+          cmake -S . -B build "${GEN[@]}" \
             ${{ matrix.cmake_args }} \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
