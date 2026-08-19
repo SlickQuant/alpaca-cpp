@@ -13,9 +13,9 @@
 #include <alpaca/trading/asset.hpp>
 #include <alpaca/utils.hpp>
 
-using json = nlohmann::json;
-
 namespace alpaca {
+
+using json = nlohmann::json;
 
 /// A named list of assets. `GET`/`POST /v2/watchlists`.
 ///
