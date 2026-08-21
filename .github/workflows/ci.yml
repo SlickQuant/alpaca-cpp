@@ -55,13 +55,23 @@ jobs:
             build_type: Debug
             vcpkg_cache: ~/.cache/vcpkg/archives
             cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+          # Builds slick-net from source instead of taking it from vcpkg. Its Websocket
+          # constructor carries a trailing `requires std::default_initializable<BufferT>`,
+          # and GCC and Clang mangle that clause into the symbol name differently, so
+          # Clang objects cannot resolve the constructor out of the GCC-built
+          # libslick-net.a that vcpkg installs -- every unconstrained member of the same
+          # class links fine, which is what makes the failure look arbitrary.
+          # CMAKE_DISABLE_FIND_PACKAGE_slick-net sends the root CMakeLists down its
+          # FetchContent fallback so the library is compiled by the same Clang that
+          # consumes it. slick-net stays in VCPKG_PACKAGES: the source build still needs
+          # its Boost/OpenSSL dependencies from there.
           - name: Linux Clang / Release
             os: ubuntu-latest
             triplet: x64-linux
             generator: Ninja
             build_type: Release
             vcpkg_cache: ~/.cache/vcpkg/archives
-            cmake_args: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+            cmake_args: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON
           - name: Windows MSVC / Release
             os: windows-latest
             triplet: x64-windows
@@ -104,7 +114,9 @@ jobs:
       # still resolved through FetchContent. "Fetching slick-net"/"Fetching slick-logger" in
       # this step's log means the runner's vcpkg snapshot was older than the find_package
       # version floor (slick-net 3.1.0, slick-logger 1.1.0) and the build quietly fell back
-      # to a git clone -- the build still passes, so the log is the only signal.
+      # to a git clone -- the build still passes, so the log is the only signal. The Clang
+      # job is the exception: it asks for "Fetching slick-net" on purpose (see its matrix
+      # entry), so only "Fetching slick-logger" is a surprise there.
       - name: Configure
         run: |
           GEN=()

@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `data_client::env()` and `data_client_awaitable::env()`, matching `trading_client::env()`.
+  The environment was already stored but unreadable, which is also what made Clang warn
+  about an unused private field.
+
+### Fixed
+
+- Linux Clang builds no longer fail to link `slick::net::Websocket`'s constructor. vcpkg
+  builds `libslick-net.a` with the system GCC, and GCC and Clang mangle the constructor's
+  trailing `requires std::default_initializable<BufferT>` into different symbol names, so a
+  Clang consumer of that archive is left with an undefined reference. The CI Clang job now
+  builds slick-net from source with the same compiler
+  (`-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON`); the same flag is the fix for anyone
+  building with Clang against a GCC-built slick-net, and it is documented in the README.
+
 ## [0.1.0] - 2026-08-18
 
 Initial release: a C++20 SDK for the Alpaca Trading API v2, the Market Data API, and every

@@ -57,6 +57,21 @@ Each is looked up with `find_package(... CONFIG)` first. slick-net, slick-logger
 fall back to `FetchContent` when not found, so the build still works without vcpkg — it
 just clones and builds them from source instead.
 
+> **Clang on Linux:** slick-net ships a compiled archive, and vcpkg builds it with the
+> system GCC. Its `Websocket` constructor carries a trailing
+> `requires std::default_initializable<BufferT>`, and GCC and Clang mangle that clause into
+> the symbol name differently, so a Clang build cannot resolve that one constructor out of a
+> GCC-built `libslick-net.a`:
+>
+> ```
+> undefined reference to `slick::net::Websocket<boost::beast::basic_flat_buffer<...>>::Websocket(...)'
+> ```
+>
+> Build slick-net with the compiler that consumes it. Adding
+> `-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON` to the configure line takes the `FetchContent`
+> path and compiles it in-tree, which is what the CI Clang job does; installing a
+> Clang-built slick-net works equally well.
+
 ### Building
 
 ```bash
@@ -453,7 +468,8 @@ The suite has two tiers:
 
 - **Offline unit tests** — run with no credentials and no network. They cover RFC-3339
   parsing edge cases, query-string encoding, number formatting, error mapping, rate-limiter
-  accounting under concurrent threads, and `from_json` against captured Alpaca payloads.
+  accounting under concurrent threads, client construction (base URL and environment
+  selection), and `from_json` against captured Alpaca payloads.
 - **Integration tests** — skipped unless credentials are configured. The trading group needs
   **paper** credentials (`APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY`, or the
   unprefixed pair if that holds paper keys) and only ever talks to paper trading; orders are

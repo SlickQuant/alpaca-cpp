@@ -74,6 +74,7 @@ if (BUILD_ALPACA_CORE)
         trading_integration_tests.cpp
         data_model_tests.cpp
         data_query_tests.cpp
+        data_client_tests.cpp
         data_integration_tests.cpp
         streaming_model_tests.cpp
         streaming_stream_tests.cpp

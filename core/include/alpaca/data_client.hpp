@@ -70,6 +70,10 @@ public:
     std::string_view base_url() const noexcept { return ctx_.base_url(); }
     void set_base_url(std::string_view url) { ctx_.set_base_url(url); }
 
+    /// The environment the credentials were resolved for. `data.alpaca.markets` itself is
+    /// not account-scoped, so this only records which key pair the client is using.
+    environment env() const noexcept { return env_; }
+
     rate_limiter& limiter() noexcept { return ctx_.limiter(); }
     void set_retry_policy(const detail::retry_policy &policy) noexcept { ctx_.set_retry_policy(policy); }
 
