@@ -19,8 +19,12 @@ env:
   # Resolved through the vcpkg preinstalled on the runner image. Both nlohmann_json and
   # OpenSSL are looked up with find_package(... CONFIG REQUIRED), and apt's libssl-dev
   # ships no OpenSSLConfig.cmake, so vcpkg is required here rather than merely convenient.
-  # boost-beast/boost-context are for slick-net, which fetches from GitHub (see below).
-  VCPKG_PACKAGES: "nlohmann-json openssl boost-beast boost-context"
+  # slick-net and slick-logger are public vcpkg ports, so the SlickQuant dependencies come
+  # from the binary cache instead of a git clone + source build. Everything else they need
+  # is transitive and must not be listed here: slick-net pulls boost-asio/beast/context/
+  # system, slick-dynamic-buffer, slick-queue and slick-stream-buffer(-multiplexer), and
+  # slick-logger pulls slick-queue.
+  VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger"
 
 jobs:
   build:
@@ -96,8 +100,11 @@ jobs:
           fi
           "$VCPKG" install --triplet "${{ matrix.triplet }}" $VCPKG_PACKAGES
 
-      # slick-net, slick-logger and googletest are not public vcpkg ports; the build falls
-      # back to FetchContent for each, which in turn pulls slick-net's own SlickQuant deps.
+      # slick-net and slick-logger are satisfied by the vcpkg install above; googletest is
+      # still resolved through FetchContent. "Fetching slick-net"/"Fetching slick-logger" in
+      # this step's log means the runner's vcpkg snapshot was older than the find_package
+      # version floor (slick-net 3.1.0, slick-logger 1.1.0) and the build quietly fell back
+      # to a git clone -- the build still passes, so the log is the only signal.
       - name: Configure
         run: |
           GEN=()

@@ -43,9 +43,19 @@ exactly the ones it needs.
 
 - C++20 compiler (MSVC 2022, GCC 11+, Clang 14+)
 - CMake 3.21+
-- [slick-net](https://github.com/SlickQuant/slick-net) 3.1.0 — fetched automatically if not installed
-- nlohmann/json, OpenSSL
-- GTest and [slick-logger](https://github.com/SlickQuant/slick-logger) for the test suite only
+- [slick-net](https://github.com/SlickQuant/slick-net) 3.1.0, nlohmann/json, OpenSSL
+- GTest and [slick-logger](https://github.com/SlickQuant/slick-logger) 1.1.0+ for the test suite only
+
+All of these are public vcpkg ports, so one `vcpkg install` covers them — slick-net pulls
+Boost and the remaining `slick-*` packages in transitively:
+
+```bash
+vcpkg install nlohmann-json openssl slick-net slick-logger
+```
+
+Each is looked up with `find_package(... CONFIG)` first. slick-net, slick-logger and GTest
+fall back to `FetchContent` when not found, so the build still works without vcpkg — it
+just clones and builds them from source instead.
 
 ### Building
 

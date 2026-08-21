@@ -17,7 +17,9 @@ defaults:
     shell: bash
 
 env:
-  VCPKG_PACKAGES: "nlohmann-json openssl boost-beast boost-context"
+  # Keep in step with ci.yml: the vcpkg cache below is keyed on ci.yml, so the two
+  # workflows share cache entries only while this list matches.
+  VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger"
 
 jobs:
   # Fails the release before anything is built if the tag, CMake project version and
