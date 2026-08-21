@@ -21,6 +21,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   builds slick-net from source with the same compiler
   (`-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON`); the same flag is the fix for anyone
   building with Clang against a GCC-built slick-net, and it is documented in the README.
+- The Linux Release jobs no longer abort with `SIGILL` in every test that constructs a
+  stream. slick-net's `CMakeLists.txt` sets `CMAKE_CXX_FLAGS_RELEASE` to `-O3 -march=native`,
+  so vcpkg's `libslick-net.a` carries whatever instruction set the runner that built it
+  happened to have; vcpkg's ABI hash does not cover the host CPU, so the workflow's archive
+  cache replays that build on runners with a narrower one and the `Websocket` constructor —
+  the first frame outside this SDK's own objects — executes an unsupported instruction. Those
+  jobs now build slick-net from source with `-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON`, and
+  the trap is documented in the README for anyone consuming a prebuilt archive.
 
 ## [0.1.0] - 2026-08-18
 

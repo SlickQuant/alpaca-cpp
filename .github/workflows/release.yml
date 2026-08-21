@@ -80,12 +80,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # CMAKE_DISABLE_FIND_PACKAGE_slick-net builds slick-net from source on this runner
+          # rather than taking vcpkg's archive, which is compiled with "-O3 -march=native" and
+          # therefore only runs on a CPU as wide as whichever runner produced it. This job is
+          # Release and runs the offline suites, so it is exposed exactly like the CI Release
+          # jobs -- see the matrix comment in ci.yml for the full story.
           - label: linux-x64
             os: ubuntu-latest
             triplet: x64-linux
             generator: Ninja
             vcpkg_cache: ~/.cache/vcpkg/archives
-            cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+            cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON
           - label: windows-x64
             os: windows-latest
             triplet: x64-windows

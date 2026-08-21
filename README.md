@@ -72,6 +72,16 @@ just clones and builds them from source instead.
 > path and compiles it in-tree, which is what the CI Clang job does; installing a
 > Clang-built slick-net works equally well.
 
+> **A prebuilt slick-net archive only runs on the CPU that built it:** slick-net's
+> `CMakeLists.txt` sets `CMAKE_CXX_FLAGS_RELEASE` to `-O3 -march=native`, so a Release
+> `libslick-net.a` — vcpkg's included — is compiled for the exact instruction set of the
+> machine that produced it. Install it from a binary cache populated on a wider machine and
+> anything that constructs a stream dies with `SIGILL` / `Illegal instruction` inside the
+> `Websocket` constructor, which reads like a crash in this SDK rather than a build-flag
+> mismatch. Build slick-net where you run it — `-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON`
+> does that, and is why the CI Release jobs pass it — or keep the archive on CPUs compatible
+> with the one that built it. Debug builds are unaffected.
+
 ### Building
 
 ```bash

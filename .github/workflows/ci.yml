@@ -19,11 +19,12 @@ env:
   # Resolved through the vcpkg preinstalled on the runner image. Both nlohmann_json and
   # OpenSSL are looked up with find_package(... CONFIG REQUIRED), and apt's libssl-dev
   # ships no OpenSSLConfig.cmake, so vcpkg is required here rather than merely convenient.
-  # slick-net and slick-logger are public vcpkg ports, so the SlickQuant dependencies come
-  # from the binary cache instead of a git clone + source build. Everything else they need
-  # is transitive and must not be listed here: slick-net pulls boost-asio/beast/context/
-  # system, slick-dynamic-buffer, slick-queue and slick-stream-buffer(-multiplexer), and
-  # slick-logger pulls slick-queue.
+  # slick-logger is a public vcpkg port, so it comes from the binary cache instead of a git
+  # clone + source build. slick-net is listed for its dependency closure rather than for its
+  # archive: the Release jobs build it from source (see the matrix), but they still need the
+  # Boost and OpenSSL it pulls in. Everything else is transitive and must not be listed here:
+  # slick-net pulls boost-asio/beast/context/system, slick-dynamic-buffer, slick-queue and
+  # slick-stream-buffer(-multiplexer), and slick-logger pulls slick-queue.
   VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger"
 
 jobs:
@@ -34,6 +35,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Every Linux *Release* job passes -DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON, which
+          # sends the root CMakeLists down its FetchContent fallback so slick-net is compiled
+          # by the same compiler, on the same machine, as the code that consumes it.
+          # slick-net's own CMakeLists overwrites CMAKE_CXX_FLAGS_RELEASE with
+          # "-O3 -march=native", so the libslick-net.a vcpkg installs is tuned for whichever
+          # runner happened to build it. vcpkg's ABI hash does not cover the host CPU, so the
+          # archive cache below replays that build on runners with a narrower one, and every
+          # test that constructs a stream then dies with SIGILL inside the Websocket
+          # constructor -- the first frame that leaves this repo's own objects. Debug is
+          # unaffected (CMAKE_CXX_FLAGS_RELEASE is never used) and so is MSVC (that branch of
+          # slick-net's if() sets /O2 and names no -march), so those jobs keep consuming the
+          # vcpkg archive and cover that path. slick-net stays in VCPKG_PACKAGES either way:
+          # the source build still needs its Boost/OpenSSL dependencies from there.
           # Pinned rather than default-GCC on purpose: GCC 11 and 13 ICE on an
           # initializer_list temporary held across a co_await (worked around in
           # trading_client_awaitable.cpp), and GCC 14 does not. If this job followed the
@@ -46,7 +60,7 @@ jobs:
             build_type: Release
             vcpkg_cache: ~/.cache/vcpkg/archives
             apt_packages: g++-13
-            cmake_args: -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13
+            cmake_args: -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13 -DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON
           # Follows the runner's default GCC, so newer releases get exercised too.
           - name: Linux GCC (default) / Debug
             os: ubuntu-latest
@@ -55,16 +69,12 @@ jobs:
             build_type: Debug
             vcpkg_cache: ~/.cache/vcpkg/archives
             cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
-          # Builds slick-net from source instead of taking it from vcpkg. Its Websocket
-          # constructor carries a trailing `requires std::default_initializable<BufferT>`,
-          # and GCC and Clang mangle that clause into the symbol name differently, so
-          # Clang objects cannot resolve the constructor out of the GCC-built
-          # libslick-net.a that vcpkg installs -- every unconstrained member of the same
-          # class links fine, which is what makes the failure look arbitrary.
-          # CMAKE_DISABLE_FIND_PACKAGE_slick-net sends the root CMakeLists down its
-          # FetchContent fallback so the library is compiled by the same Clang that
-          # consumes it. slick-net stays in VCPKG_PACKAGES: the source build still needs
-          # its Boost/OpenSSL dependencies from there.
+          # Clang would need the source build anyway, for a second and independent reason:
+          # slick-net's Websocket constructor carries a trailing `requires std::default_initializable<BufferT>`,
+          # and GCC and Clang mangle that clause into the symbol name differently, so Clang
+          # objects cannot resolve the constructor out of the GCC-built libslick-net.a that
+          # vcpkg installs -- every unconstrained member of the same class links fine, which
+          # is what makes the failure look arbitrary.
           - name: Linux Clang / Release
             os: ubuntu-latest
             triplet: x64-linux
@@ -110,13 +120,12 @@ jobs:
           fi
           "$VCPKG" install --triplet "${{ matrix.triplet }}" $VCPKG_PACKAGES
 
-      # slick-net and slick-logger are satisfied by the vcpkg install above; googletest is
-      # still resolved through FetchContent. "Fetching slick-net"/"Fetching slick-logger" in
-      # this step's log means the runner's vcpkg snapshot was older than the find_package
-      # version floor (slick-net 3.1.0, slick-logger 1.1.0) and the build quietly fell back
-      # to a git clone -- the build still passes, so the log is the only signal. The Clang
-      # job is the exception: it asks for "Fetching slick-net" on purpose (see its matrix
-      # entry), so only "Fetching slick-logger" is a surprise there.
+      # slick-logger is satisfied by the vcpkg install above; googletest is still resolved
+      # through FetchContent. "Fetching slick-logger" in this step's log means the runner's
+      # vcpkg snapshot was older than the find_package version floor (slick-logger 1.1.0) and
+      # the build quietly fell back to a git clone -- the build still passes, so the log is
+      # the only signal. "Fetching slick-net" is expected in every job whose cmake_args carry
+      # CMAKE_DISABLE_FIND_PACKAGE_slick-net, and a surprise in the ones that do not.
       - name: Configure
         run: |
           GEN=()
