@@ -46,12 +46,20 @@ struct reconnect_policy {
     uint32_t max_attempts = 0;              ///< 0 means keep trying indefinitely
 };
 
+/// The websocket frame type a stream sends. Every JSON stream sends text; the MessagePack
+/// option streams send binary.
+enum class frame_type : uint8_t {
+    text,
+    binary,
+};
+
 /// Shared websocket plumbing for every Alpaca stream.
 ///
 /// Owns the socket, the authentication handshake, the reconnect loop and the JSON
 /// framing. Derived classes supply only the two things that actually differ between the
 /// account stream and the market data streams: how to recognise the authentication
-/// acknowledgement, and how to dispatch a payload to typed handlers.
+/// acknowledgement, and how to dispatch a payload to typed handlers. A stream that does
+/// not speak JSON replaces the framing as well — see `handle_frame` and `encode`.
 ///
 /// **Threading.** Handlers are invoked directly on the websocket service thread, with no
 /// intermediate queue — that is what keeps the message path allocation- and lock-free.
@@ -65,7 +73,7 @@ struct reconnect_policy {
 /// on reconnect — never on the inbound message path.
 class stream_base {
 public:
-    stream_base(std::string url, credentials creds);
+    stream_base(std::string url, credentials creds, frame_type outbound = frame_type::text);
     virtual ~stream_base();
 
     // The callbacks handed to the socket capture `this`, so the object cannot move.
@@ -93,12 +101,24 @@ public:
     stream_state state() const noexcept { return state_.load(std::memory_order_acquire); }
     bool is_ready() const noexcept { return state() == stream_state::ready; }
     std::string_view url() const noexcept { return url_; }
+    frame_type outbound_frame_type() const noexcept { return outbound_; }
 
     void set_reconnect_policy(const reconnect_policy &policy);
 
 protected:
-    /// Sends one text frame. Safe to call from a handler.
+    /// Sends one frame of the stream's outbound frame type. Safe to call from a handler.
     void send(const std::string &payload);
+
+    /// One inbound websocket frame, on the service thread. The default parses it as JSON,
+    /// splits array frames and feeds each message to `handle_payload`; a stream with a
+    /// different wire format overrides this and decodes the bytes itself.
+    virtual void handle_frame(const char *data, std::size_t len);
+
+    /// Serialises one outbound control frame. JSON text unless overridden.
+    virtual std::string encode(const json &frame) const;
+
+    /// The frame sent as soon as the socket is up.
+    virtual std::string auth_frame() const;
 
     /// Called on the service thread once the stream is authenticated, and again after
     /// every reconnect. Derived classes replay their subscriptions here.
@@ -136,6 +156,7 @@ private:
 
     std::string url_;
     credentials creds_;
+    frame_type outbound_;
     std::unique_ptr<socket_holder> socket_;
 
     std::atomic<stream_state> state_{stream_state::disconnected};

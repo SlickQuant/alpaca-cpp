@@ -10,7 +10,8 @@ project(alpaca-cpp
 # Each package can be built independently so it can be shipped as its own vcpkg port.
 # Turning BUILD_ALPACA_CORE off makes the satellites resolve alpaca-cpp via find_package.
 option(BUILD_ALPACA_CORE              "Build alpaca-cpp (Trading + Market Data + JSON streams)" ON)
-# Default OFF until the satellite libraries land (Phase 4 / Phase 5).
+# The satellites are opt-in. alpaca-broker-cpp has not landed yet (Phase 5), and
+# alpaca-options-streaming-cpp brings in msgpack, which the base SDK is meant to stay clear of.
 option(BUILD_ALPACA_BROKER            "Build alpaca-broker-cpp"                    OFF)
 option(BUILD_ALPACA_OPTIONS_STREAMING "Build alpaca-options-streaming-cpp"         OFF)
 option(BUILD_ALPACA_TESTS             "Build tests for the enabled packages"       ${PROJECT_IS_TOP_LEVEL})
@@ -99,7 +100,9 @@ endfunction()
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenSSL CONFIG REQUIRED)
 
-find_package(slick-net 3.1.0 CONFIG QUIET)
+set(SLICK_NET_MIN_VERSION 4.1.0)
+
+find_package(slick-net ${SLICK_NET_MIN_VERSION} CONFIG QUIET)
 if (NOT slick-net_FOUND)
     message(STATUS "Fetching slick-net...")
     include(FetchContent)
@@ -108,7 +111,7 @@ if (NOT slick-net_FOUND)
     FetchContent_Declare(
         slick-net
         GIT_REPOSITORY https://github.com/SlickQuant/slick-net.git
-        GIT_TAG v3.1.0
+        GIT_TAG v${SLICK_NET_MIN_VERSION}
     )
     FetchContent_MakeAvailable(slick-net)
 else()

@@ -17,7 +17,8 @@ else()
     FetchContent_MakeAvailable(googletest)
 endif()
 
-find_package(slick-logger 1.1.0 CONFIG QUIET)
+set(SLICK_LOGGER_MIN_VERSION 2.2.1)
+find_package(slick-logger ${SLICK_LOGGER_MIN_VERSION} CONFIG QUIET)
 if (NOT slick-logger_FOUND)
     message(STATUS "Fetching slick-logger...")
     set(BUILD_SLICK_LOGGER_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -26,7 +27,7 @@ if (NOT slick-logger_FOUND)
     FetchContent_Declare(
         slick-logger
         GIT_REPOSITORY https://github.com/SlickQuant/slick-logger.git
-        GIT_TAG v1.1.3
+        GIT_TAG v${SLICK_LOGGER_MIN_VERSION}
     )
     FetchContent_MakeAvailable(slick-logger)
 endif()
@@ -81,4 +82,13 @@ if (BUILD_ALPACA_CORE)
         streaming_integration_tests.cpp
     )
     target_link_libraries(alpaca_tests PRIVATE slick::alpaca-cpp)
+endif()
+
+if (BUILD_ALPACA_OPTIONS_STREAMING)
+    alpaca_add_test_target(alpaca_options_streaming_tests
+        option_stream_tests.cpp
+        option_stream_integration_tests.cpp
+    )
+    target_link_libraries(alpaca_options_streaming_tests PRIVATE
+        slick::alpaca-options-streaming-cpp)
 endif()

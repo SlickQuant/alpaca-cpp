@@ -202,6 +202,13 @@ TEST(StreamState, DisconnectBeforeConnectIsHarmless) {
     EXPECT_EQ(stream.state(), detail::stream_state::disconnected);
 }
 
+TEST(StreamState, JsonStreamsSendTextFrames) {
+    // Only the MessagePack option streams send binary.
+    EXPECT_EQ(stock_data_stream(dummy(), data_feed::iex).outbound_frame_type(),
+              detail::frame_type::text);
+    EXPECT_EQ(trade_update_stream(dummy()).outbound_frame_type(), detail::frame_type::text);
+}
+
 TEST(StreamState, AuthMessageMatchesTheDocumentedFrame) {
     // Both the data streams and the account stream take this same flat form.
     const auto message = json::parse(dummy().stream_auth_message());

@@ -27,9 +27,10 @@ struct stream_base::socket_holder {
     {}
 };
 
-stream_base::stream_base(std::string url, credentials creds)
+stream_base::stream_base(std::string url, credentials creds, frame_type outbound)
     : url_(std::move(url))
     , creds_(std::move(creds))
+    , outbound_(outbound)
 {
     socket_ = std::make_unique<socket_holder>(
         url_,
@@ -116,15 +117,23 @@ void stream_base::disconnect() {
 
 void stream_base::send(const std::string &payload) {
     if (socket_) {
-        socket_->ws.send(payload.data(), payload.size());
+        socket_->ws.send(payload.data(), payload.size(), outbound_ == frame_type::binary);
     }
+}
+
+std::string stream_base::encode(const json &frame) const {
+    return frame.dump();
+}
+
+std::string stream_base::auth_frame() const {
+    return creds_.stream_auth_message();
 }
 
 void stream_base::handle_socket_connected() {
     // The socket is up but the session is not usable until Alpaca acknowledges the
     // credentials, so the state stays below `ready` until the derived class says so.
     state_.store(stream_state::authenticating, std::memory_order_release);
-    send(creds_.stream_auth_message());
+    send(auth_frame());
 }
 
 void stream_base::handle_socket_disconnected() {
@@ -146,7 +155,10 @@ void stream_base::handle_socket_data(const char *data, std::size_t len) {
     if (data == nullptr || len == 0) {
         return;
     }
+    handle_frame(data, len);
+}
 
+void stream_base::handle_frame(const char *data, std::size_t len) {
     json parsed;
     try {
         parsed = json::parse(data, data + len);

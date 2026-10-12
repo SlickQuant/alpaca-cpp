@@ -9,9 +9,9 @@
 A modern C++20 SDK for [alpaca.markets](https://alpaca.markets) — Trading API, Market Data API,
 Broker API, and every streaming interface.
 
-> **Status: Phase 3 of 6.** The Trading API (v2), the Market Data API and the JSON
-> websocket streams are complete. The Broker library and the options-streaming library
-> are being added in subsequent phases — see [Roadmap](#roadmap).
+> **Status: Phase 4 of 6.** The Trading API (v2), the Market Data API, the JSON websocket
+> streams and the MessagePack option streams are complete. The Broker library is being
+> added in the next phase — see [Roadmap](#roadmap).
 
 ## Three libraries, one repo
 
@@ -29,7 +29,7 @@ base SDK** — it is needed only by the options streams, which use a binary-only
 alpaca-cpp/
 ├── core/               → alpaca-cpp
 ├── broker/             → alpaca-broker-cpp                 (Phase 5)
-├── options-streaming/  → alpaca-options-streaming-cpp      (Phase 4)
+├── options-streaming/  → alpaca-options-streaming-cpp
 ├── cmake/              → one package config per library
 ├── tests/  examples/
 ```
@@ -45,6 +45,7 @@ exactly the ones it needs.
 - CMake 3.21+
 - [slick-net](https://github.com/SlickQuant/slick-net) 3.1.0, nlohmann/json, OpenSSL
 - GTest and [slick-logger](https://github.com/SlickQuant/slick-logger) 1.1.0+ for the test suite only
+- [msgpack-cxx](https://github.com/msgpack/msgpack-c) for `alpaca-options-streaming-cpp` only
 
 All of these are public vcpkg ports, so one `vcpkg install` covers them — slick-net pulls
 Boost and the remaining `slick-*` packages in transitively:
@@ -56,6 +57,10 @@ vcpkg install nlohmann-json openssl slick-net slick-logger
 Each is looked up with `find_package(... CONFIG)` first. slick-net, slick-logger and GTest
 fall back to `FetchContent` when not found, so the build still works without vcpkg — it
 just clones and builds them from source instead.
+
+The options-streaming library additionally needs msgpack-cxx (`vcpkg install msgpack`).
+It is header-only and used inside the library only, so it falls back to `FetchContent`
+too, and nothing that links `slick::alpaca-options-streaming-cpp` has to find it.
 
 > **Clang on Linux:** slick-net ships a compiled archive, and vcpkg builds it with the
 > system GCC. Its `Websocket` constructor carries a trailing
@@ -104,7 +109,7 @@ rest through `find_package`:
 |---|---|---|
 | `BUILD_ALPACA_CORE` | `ON` | Build `alpaca-cpp` |
 | `BUILD_ALPACA_BROKER` | `OFF` | Build `alpaca-broker-cpp` |
-| `BUILD_ALPACA_OPTIONS_STREAMING` | `OFF` | Build `alpaca-options-streaming-cpp` |
+| `BUILD_ALPACA_OPTIONS_STREAMING` | `OFF` | Build `alpaca-options-streaming-cpp` (adds the msgpack dependency) |
 | `BUILD_ALPACA_TESTS` | top-level | Tests for the enabled packages |
 | `BUILD_ALPACA_EXAMPLES` | top-level | Examples for the enabled packages |
 
@@ -117,6 +122,13 @@ configuration their vcpkg ports use.
 ```cmake
 find_package(alpaca-cpp CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE slick::alpaca-cpp)
+```
+
+The option streams are a separate package that brings the base SDK with it:
+
+```cmake
+find_package(alpaca-options-streaming-cpp CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE slick::alpaca-options-streaming-cpp)
 ```
 
 ## Usage
@@ -354,6 +366,46 @@ alpaca::stock_data_stream s({}, alpaca::stock_data_stream::test_feed_url());
 s.subscribe_trades({"FAKEPACA"});
 ```
 
+### Option streams
+
+`option_data_stream` lives in `alpaca-options-streaming-cpp` (build it with
+`-DBUILD_ALPACA_OPTIONS_STREAMING=ON`), because Alpaca serves the option feeds in
+MessagePack only and the base SDK does not depend on msgpack. Its interface is the JSON
+streams' interface: the same handlers, the same reconnect behaviour, and trades and quotes
+delivered as the `alpaca::trade` and `alpaca::quote` the REST option methods return.
+
+```cpp
+#include <alpaca/streaming/option_data_stream.hpp>
+
+alpaca::option_data_stream stream({}, alpaca::option_feed::indicative);
+
+stream.on_trade([](const std::string &symbol, const alpaca::trade &t) {
+    std::cout << symbol << ' ' << t.price << " x " << t.size << '\n';
+});
+stream.on_quote([](const std::string &symbol, const alpaca::quote &q) {
+    std::cout << symbol << ' ' << q.bid_price << " / " << q.ask_price << '\n';
+});
+
+stream.subscribe_trades({"AAPL260116C00200000"});
+stream.subscribe_quotes({"AAPL260116C00200000"});   // quotes cannot use "*" (error 413)
+
+stream.connect();
+```
+
+`indicative` needs no OPRA subscription; `option_feed::opra` does.
+
+Frames are decoded straight into the handler arguments with a SAX parser — no intermediate
+document — and the `trade`, `quote` and symbol string handed to a handler are reused from
+one message to the next, so the message path does not allocate once it has warmed up.
+**Copy anything that has to outlive the callback.**
+
+> Alpaca's documentation asks for a `Content-Type: application/msgpack` header on the
+> websocket upgrade request, and the official SDKs send one. This SDK does not — slick-net
+> has no way to add a header to that request — and does not need to: with no `Content-Type`
+> at all, both option endpoints already answer in MessagePack. If that default ever changed,
+> the stream would report Alpaca's refusal through `on_error` and `connect()` would return
+> `false`, rather than misreading JSON as binary.
+
 ### Timestamps
 
 Every timestamp is normalised to **nanoseconds since the Unix epoch** (`uint64_t`), parsed
@@ -454,6 +506,7 @@ rather than overwriting.
 | `crypto_data_stream` | `trades`, `quotes`, `bars`, `updatedBars`, `dailyBars`, `orderbooks` |
 | `news_stream` | `news` |
 | `trade_update_stream` | account order lifecycle events |
+| `option_data_stream` | `trades`, `quotes` — MessagePack, in `alpaca-options-streaming-cpp` |
 
 ## Roadmap
 
@@ -462,7 +515,7 @@ rather than overwriting.
 | 1 | Foundation + Trading API v2 | ✅ complete |
 | 2 | Market Data API (stocks, crypto, options REST, news, screener, corporate actions, forex) | ✅ complete |
 | 3 | JSON streaming — trade updates, stocks, crypto, news | ✅ complete |
-| 4 | `alpaca-options-streaming-cpp` — opra / indicative msgpack streams | planned |
+| 4 | `alpaca-options-streaming-cpp` — opra / indicative msgpack streams | ✅ complete |
 | 5 | `alpaca-broker-cpp` — Broker API v1 + SSE events | planned |
 | 6 | Examples, CI matrix, vcpkg ports | planned |
 
@@ -494,6 +547,14 @@ The suite has two tiers:
 ./build/tests/alpaca_tests --gtest_filter=-*Integration*   # offline only
 ```
 
+Each library has its own test binary. With `-DBUILD_ALPACA_OPTIONS_STREAMING=ON` the build
+also produces `alpaca_options_streaming_tests`, with the same two tiers. The offline tests
+feed MessagePack frames — packed, hand-encoded, and captured from Alpaca's servers — to
+`option_data_stream` through the same entry point the socket uses and check what reaches
+the handlers. The integration group connects to the `indicative` feed and asserts on the
+handshake, the subscription echo and an error frame, none of which depend on the market
+being open.
+
 ## Examples
 
 Built with `-DBUILD_ALPACA_EXAMPLES=ON` into `build/examples/`.
@@ -504,6 +565,7 @@ Built with `-DBUILD_ALPACA_EXAMPLES=ON` into `build/examples/`.
 | `market_data_overview` | Read-only: stock snapshot, daily bars, a crypto order book, recent news. Free-tier endpoints only. |
 | `stream_market_data` | Live trades, quotes and bars over websockets. Defaults to the synthetic test feed so it works outside market hours; pass symbols to use IEX. |
 | `place_and_cancel_order` | Full order lifecycle on paper — submit a resting limit order, read it back, replace, cancel. Refuses to run against a live account. |
+| `stream_option_data` | Option trades and quotes for the OCC symbols given on the command line, on the `indicative` feed (`--opra` for OPRA). Built with `-DBUILD_ALPACA_OPTIONS_STREAMING=ON`. |
 
 ## License
 

@@ -25,7 +25,7 @@ std::string data_stream_base::build_frame(std::string_view action) const {
             frame[channel] = symbols;
         }
     }
-    return frame.dump();
+    return encode(frame);
 }
 
 void data_stream_base::subscribe(std::string_view channel,
@@ -46,7 +46,7 @@ void data_stream_base::subscribe(std::string_view channel,
         json frame;
         frame["action"] = "subscribe";
         frame[std::string(channel)] = symbols;
-        payload = frame.dump();
+        payload = encode(frame);
     }
 
     if (is_ready()) {
@@ -73,7 +73,7 @@ void data_stream_base::unsubscribe(std::string_view channel,
         json frame;
         frame["action"] = "unsubscribe";
         frame[std::string(channel)] = symbols;
-        payload = frame.dump();
+        payload = encode(frame);
     }
 
     if (is_ready()) {

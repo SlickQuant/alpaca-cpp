@@ -54,8 +54,9 @@ public:
     std::map<std::string, std::set<std::string>, std::less<>> pending_channels() const;
 
 protected:
-    data_stream_base(std::string url, credentials creds)
-        : stream_base(std::move(url), std::move(creds))
+    data_stream_base(std::string url, credentials creds,
+                     frame_type outbound = frame_type::text)
+        : stream_base(std::move(url), std::move(creds), outbound)
     {}
 
     /// Adds `symbols` to `channel` and sends a subscribe frame when the stream is live.

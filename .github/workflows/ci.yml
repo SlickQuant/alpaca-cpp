@@ -25,7 +25,8 @@ env:
   # Boost and OpenSSL it pulls in. Everything else is transitive and must not be listed here:
   # slick-net pulls boost-asio/beast/context/system, slick-dynamic-buffer, slick-queue and
   # slick-stream-buffer(-multiplexer), and slick-logger pulls slick-queue.
-  VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger"
+  # msgpack (the msgpack-cxx headers) is needed by alpaca-options-streaming-cpp only.
+  VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger msgpack"
 
 jobs:
   build:
@@ -135,6 +136,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            -DBUILD_ALPACA_OPTIONS_STREAMING=ON \
             -DBUILD_ALPACA_TESTS=ON \
             -DBUILD_ALPACA_EXAMPLES=ON
 
@@ -153,8 +155,10 @@ jobs:
             --no-tests=error \
             -E 'Integration'
 
-  # Validates the exported package config: the install tree must be consumable through
-  # find_package(alpaca-cpp CONFIG) by a project that knows nothing about this source tree.
+  # Validates the exported package configs: the install tree must be consumable through
+  # find_package(... CONFIG) by a project that knows nothing about this source tree. The
+  # consumer never looks for msgpack itself, which checks that alpaca-options-streaming-cpp
+  # really does keep it private.
   install-consume:
     name: Install + consume
     runs-on: ubuntu-latest
@@ -181,6 +185,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DBUILD_ALPACA_OPTIONS_STREAMING=ON \
             -DBUILD_ALPACA_TESTS=OFF \
             -DBUILD_ALPACA_EXAMPLES=OFF
           cmake --build build --parallel
@@ -193,14 +198,18 @@ jobs:
           cmake_minimum_required(VERSION 3.21)
           project(consumer LANGUAGES CXX)
           find_package(alpaca-cpp CONFIG REQUIRED)
+          find_package(alpaca-options-streaming-cpp CONFIG REQUIRED)
           add_executable(consumer main.cpp)
-          target_link_libraries(consumer PRIVATE slick::alpaca-cpp)
+          target_link_libraries(consumer PRIVATE
+            slick::alpaca-cpp slick::alpaca-options-streaming-cpp)
           EOF
           cat > consumer/main.cpp <<'EOF'
           #include <alpaca/alpaca.hpp>
+          #include <alpaca/streaming/option_data_stream.hpp>
           int main() {
               const alpaca::trading_client client{alpaca::credentials("key", "secret")};
-              return client.base_url().empty() ? 1 : 0;
+              const alpaca::option_data_stream stream{alpaca::credentials("key", "secret")};
+              return client.base_url().empty() || stream.url().empty() ? 1 : 0;
           }
           EOF
           cmake -S consumer -B consumer/build -G Ninja \

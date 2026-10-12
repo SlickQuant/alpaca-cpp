@@ -19,7 +19,7 @@ defaults:
 env:
   # Keep in step with ci.yml: the vcpkg cache below is keyed on ci.yml, so the two
   # workflows share cache entries only while this list matches.
-  VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger"
+  VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger msgpack"
 
 jobs:
   # Fails the release before anything is built if the tag, CMake project version and
@@ -124,6 +124,9 @@ jobs:
           fi
           "$VCPKG" install --triplet "${{ matrix.triplet }}" $VCPKG_PACKAGES
 
+      # The archive carries alpaca-options-streaming-cpp alongside the base SDK. msgpack is
+      # needed to build it but is not packaged: it is private to that library, so nothing
+      # that links the archive has to find it.
       - name: Configure
         run: |
           GEN=()
@@ -133,6 +136,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            -DBUILD_ALPACA_OPTIONS_STREAMING=ON \
             -DBUILD_ALPACA_TESTS=ON \
             -DBUILD_ALPACA_EXAMPLES=OFF
 
