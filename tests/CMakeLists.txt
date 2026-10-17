@@ -17,7 +17,7 @@ else()
     FetchContent_MakeAvailable(googletest)
 endif()
 
-set(SLICK_LOGGER_MIN_VERSION 2.2.1)
+set(SLICK_LOGGER_MIN_VERSION 2.3.0)
 find_package(slick-logger ${SLICK_LOGGER_MIN_VERSION} CONFIG QUIET)
 if (NOT slick-logger_FOUND)
     message(STATUS "Fetching slick-logger...")

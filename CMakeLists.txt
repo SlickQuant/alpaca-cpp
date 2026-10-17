@@ -13,7 +13,7 @@ option(BUILD_ALPACA_CORE              "Build alpaca-cpp (Trading + Market Data +
 # The satellites are opt-in. alpaca-broker-cpp has not landed yet (Phase 5), and
 # alpaca-options-streaming-cpp brings in msgpack, which the base SDK is meant to stay clear of.
 option(BUILD_ALPACA_BROKER            "Build alpaca-broker-cpp"                    OFF)
-option(BUILD_ALPACA_OPTIONS_STREAMING "Build alpaca-options-streaming-cpp"         OFF)
+option(BUILD_ALPACA_OPTIONS_STREAMING "Build alpaca-options-streaming-cpp"         ON)
 option(BUILD_ALPACA_TESTS             "Build tests for the enabled packages"       ${PROJECT_IS_TOP_LEVEL})
 option(BUILD_ALPACA_EXAMPLES          "Build examples for the enabled packages"    ${PROJECT_IS_TOP_LEVEL})
 
@@ -100,7 +100,7 @@ endfunction()
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenSSL CONFIG REQUIRED)
 
-set(SLICK_NET_MIN_VERSION 4.1.0)
+set(SLICK_NET_MIN_VERSION 4.1.1)
 
 find_package(slick-net ${SLICK_NET_MIN_VERSION} CONFIG QUIET)
 if (NOT slick-net_FOUND)
