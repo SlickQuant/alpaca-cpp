@@ -75,13 +75,26 @@ jobs:
             generator: ""
             build_type: Release
             cmake_args: -A x64
+          # Apple Clang and libc++ on Apple silicon. Every slick-* dependency already runs on
+          # macos-latest in its own CI; this job covers the SDK itself on that toolchain. The
+          # image ships no vcpkg, so the install action clones the pinned commit instead.
+          - name: macOS Apple Clang / Release
+            os: macos-latest
+            triplet: arm64-osx
+            generator: Ninja
+            build_type: Release
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Ninja
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        if: matrix.generator == 'Ninja'
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ninja
+          else
+            sudo apt-get update && sudo apt-get install -y ninja-build
+          fi
 
       - name: Install pinned compiler
         if: matrix.apt_packages != ''

@@ -1,7 +1,8 @@
 name: Install vcpkg dependencies
 description: >-
-  Moves the runner's preinstalled vcpkg to one pinned ports commit, restores the vcpkg binary
-  cache, and installs the SDK's dependencies for one triplet. Shared by ci.yml and release.yml
+  Moves the runner's preinstalled vcpkg to one pinned ports commit (or clones that commit when
+  the image has none), restores the vcpkg binary cache, and installs the SDK's dependencies
+  for one triplet. Shared by ci.yml and release.yml
   so every job resolves the same package versions.
 
 inputs:
@@ -52,11 +53,24 @@ runs:
         TRIPLET: ${{ inputs.triplet }}
       run: |
         set -euo pipefail
+
+        # Not every image ships vcpkg — the Apple-silicon macOS ones do not. Without one, start
+        # an empty clone and point the rest of the job at it: the Configure steps find the
+        # toolchain file through VCPKG_INSTALLATION_ROOT.
+        if [ -z "${VCPKG_INSTALLATION_ROOT:-}" ] || [ ! -d "$VCPKG_INSTALLATION_ROOT/.git" ]; then
+          VCPKG_INSTALLATION_ROOT="$RUNNER_TEMP/vcpkg"
+          echo "no preinstalled vcpkg; cloning into $VCPKG_INSTALLATION_ROOT"
+          git init --quiet "$VCPKG_INSTALLATION_ROOT"
+          git -C "$VCPKG_INSTALLATION_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+          echo "VCPKG_INSTALLATION_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
+        fi
         cd "$VCPKG_INSTALLATION_ROOT"
 
         # The image's clone can be owned by another user, which git refuses to touch.
         git config --global --add safe.directory "$(pwd)"
-        git fetch --quiet origin "$VCPKG_COMMIT"
+        # Classic-mode installs read only the checked-out ports tree, never git history, so
+        # the pinned commit alone is enough.
+        git fetch --quiet --depth 1 origin "$VCPKG_COMMIT"
         # The image's working tree does not match its own HEAD: the files changed upstream
         # since that commit are already modified in place, so a plain checkout aborts with
         # "Your local changes ... would be overwritten". The clone lives only as long as this
