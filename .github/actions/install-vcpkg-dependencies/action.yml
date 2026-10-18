@@ -57,7 +57,14 @@ runs:
         # The image's clone can be owned by another user, which git refuses to touch.
         git config --global --add safe.directory "$(pwd)"
         git fetch --quiet origin "$VCPKG_COMMIT"
-        git -c advice.detachedHead=false checkout --quiet "$VCPKG_COMMIT"
+        # The image's working tree does not match its own HEAD: the files changed upstream
+        # since that commit are already modified in place, so a plain checkout aborts with
+        # "Your local changes ... would be overwritten". The clone lives only as long as this
+        # job, so force the pinned tree over it. Ignored directories (installed/, downloads/,
+        # buildtrees/, the vcpkg binary) are left alone.
+        echo "discarding $(git status --porcelain | wc -l) local changes in the image's vcpkg clone"
+        git -c advice.detachedHead=false checkout --force --quiet "$VCPKG_COMMIT"
+        git clean -fdq
 
         # A newer ports tree can need a newer vcpkg tool; bootstrapping fetches the one this
         # commit names.
