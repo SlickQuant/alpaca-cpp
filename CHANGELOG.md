@@ -6,11 +6,80 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
+Adds the option data streams as a second library, `alpaca-options-streaming-cpp`, and moves
+the SDK onto slick-net 4.
+
 ### Added
+
+**`alpaca-options-streaming-cpp`**
+
+- `option_data_stream` — real-time option trades and quotes on the `indicative` and `opra`
+  feeds. Alpaca serves these in MessagePack only, which is why they live in their own
+  library: msgpack-cxx is a private, header-only dependency of it and never reaches the base
+  SDK or anything that links the library.
+- Same interface and behaviour as the JSON streams: `on_trade` / `on_quote` handlers,
+  `subscribe_*` / `unsubscribe_*`, reconnect with re-authentication and subscription replay,
+  and the same `on_error` / `on_subscription` control handling. Trades and quotes arrive as
+  the `alpaca::trade` and `alpaca::quote` the REST option methods return.
+- Frames are decoded with a SAX parser straight into the handler arguments, with no
+  intermediate document. The decoder's parse state and the `trade`, `quote` and symbol string
+  handed to handlers are reused from message to message, so the message path stops
+  allocating once warm — **handlers must copy whatever has to outlive the callback.**
+- Timestamps accept all three MessagePack timestamp encodings as well as RFC-3339 text;
+  unknown keys and nested values are skipped, so fields Alpaca adds later are harmless.
+- No `Content-Type: application/msgpack` header is sent on the websocket upgrade, although
+  Alpaca's documentation asks for one: slick-net cannot add headers to that request, and the
+  option endpoints answer in MessagePack when no `Content-Type` is given. A JSON text frame is
+  routed to the JSON path, so if that default ever changed, Alpaca's refusal would surface
+  through `on_error` instead of as an undecodable frame.
+- `stream_option_data` example.
+- 38 offline tests — packed frames, a byte-for-byte hand-encoded frame, and control and data
+  frames captured from Alpaca's servers — plus 5 integration tests against the `indicative`
+  feed covering the handshake, rejected credentials, the subscription echo, unsubscribe and
+  the 413 refusal of wildcard quote subscriptions. None of them need the market to be open.
+
+**Core**
 
 - `data_client::env()` and `data_client_awaitable::env()`, matching `trading_client::env()`.
   The environment was already stored but unreadable, which is also what made Clang warn
   about an unused private field.
+- `detail::stream_base` extension points for streams that do not speak JSON: virtual
+  `handle_frame`, `encode` and `auth_frame`, and an outbound `frame_type` (text or binary)
+  taken by the constructor and reported by `outbound_frame_type()`. The JSON streams keep
+  the defaults and behave exactly as before.
+
+### Changed
+
+- **slick-net 4.1.1 is required** (was 3.1.0), both by the build and by the installed
+  `alpaca-cppConfig.cmake`. Three of its changes reach applications through this SDK:
+  - TLS certificates are verified on every `https://` and `wss://` connection. slick-net
+    3.x did not verify them; a TLS-intercepting proxy or a private CA now has to be trusted
+    explicitly.
+  - slick-net no longer installs process-wide `SIGINT` / `SIGTERM` handlers. An application
+    that relied on Ctrl-C shutting down its streams has to handle the signal itself, as the
+    examples do.
+  - Release archives are no longer compiled with `-march=native` unless slick-net is built
+    with `SLICK_NET_ENABLE_NATIVE_ARCH=ON`, so a prebuilt archive runs on any CPU again.
+- With slick-net 4.1.1 the vcpkg ports tree has to be reasonably current. One older than
+  slick-stream-buffer-multiplexer 2.2.0 fails configure with
+  `cannot create ALIAS target "slick::slick-queue" because target "slick::queue" is itself an
+  ALIAS`: slick-net fetches the multiplexer and the slick-queue 2.3.0 it needs, then its own
+  unversioned `find_package(slick-queue)` loads vcpkg's older slick-queue too. Updating vcpkg
+  fixes it; the README gives a flag-only workaround.
+- The test suite requires slick-logger 2.3.0 (was 1.1.0).
+- `BUILD_ALPACA_OPTIONS_STREAMING` defaults to `ON`, so a default build now needs msgpack-cxx
+  (vcpkg `msgpack`, with a `FetchContent` fallback). Set it to `OFF` to build without it.
+- CI builds and tests the options-streaming library on every job, and its install-and-consume
+  job links the installed `alpaca-options-streaming-cpp` without looking for msgpack. Release
+  archives include the library.
+- CI and the release workflow install their dependencies through one composite action,
+  `.github/actions/install-vcpkg-dependencies`. It moves the runner's preinstalled vcpkg to a
+  pinned ports commit and bootstraps the matching tool before installing, because the
+  images' own vcpkg was old enough to hit the slick-queue configure failure above. The action
+  holds the package list and the binary-cache key too, so every job resolves the same
+  versions and bumping the pin starts a fresh cache.
 
 ### Fixed
 
@@ -22,13 +91,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON`); the same flag is the fix for anyone
   building with Clang against a GCC-built slick-net, and it is documented in the README.
 - The Linux Release jobs no longer abort with `SIGILL` in every test that constructs a
-  stream. slick-net's `CMakeLists.txt` sets `CMAKE_CXX_FLAGS_RELEASE` to `-O3 -march=native`,
-  so vcpkg's `libslick-net.a` carries whatever instruction set the runner that built it
-  happened to have; vcpkg's ABI hash does not cover the host CPU, so the workflow's archive
-  cache replays that build on runners with a narrower one and the `Websocket` constructor —
-  the first frame outside this SDK's own objects — executes an unsupported instruction. Those
-  jobs now build slick-net from source with `-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON`, and
-  the trap is documented in the README for anyone consuming a prebuilt archive.
+  stream. slick-net 3.1.0's `CMakeLists.txt` set `CMAKE_CXX_FLAGS_RELEASE` to
+  `-O3 -march=native`, so vcpkg's `libslick-net.a` carried whatever instruction set the runner
+  that built it happened to have; vcpkg's ABI hash does not cover the host CPU, so the
+  workflow's archive cache replayed that build on runners with a narrower one and the
+  `Websocket` constructor — the first frame outside this SDK's own objects — executed an
+  unsupported instruction. Those jobs build slick-net from source with
+  `-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON`, and slick-net 4.x, now the minimum, no longer
+  enables `-march=native` by default.
 
 ## [0.1.0] - 2026-08-18
 
@@ -132,4 +202,6 @@ JSON websocket stream. Every client comes in blocking and coroutine form
 - Four examples: `trading_overview`, `place_and_cancel_order`, `market_data_overview` and
   `stream_market_data`.
 
+[Unreleased]: https://github.com/SlickQuant/alpaca-cpp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SlickQuant/alpaca-cpp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/SlickQuant/alpaca-cpp/releases/tag/v0.1.0

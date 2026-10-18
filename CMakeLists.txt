@@ -4,14 +4,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(alpaca-cpp
-    VERSION 0.1.0
+    VERSION 0.2.0
     LANGUAGES CXX)
 
 # Each package can be built independently so it can be shipped as its own vcpkg port.
 # Turning BUILD_ALPACA_CORE off makes the satellites resolve alpaca-cpp via find_package.
 option(BUILD_ALPACA_CORE              "Build alpaca-cpp (Trading + Market Data + JSON streams)" ON)
-# The satellites are opt-in. alpaca-broker-cpp has not landed yet (Phase 5), and
-# alpaca-options-streaming-cpp brings in msgpack, which the base SDK is meant to stay clear of.
+# alpaca-broker-cpp has not landed yet (Phase 5). alpaca-options-streaming-cpp is built by
+# default; turning it off drops msgpack, which only that library needs, from the build.
 option(BUILD_ALPACA_BROKER            "Build alpaca-broker-cpp"                    OFF)
 option(BUILD_ALPACA_OPTIONS_STREAMING "Build alpaca-options-streaming-cpp"         ON)
 option(BUILD_ALPACA_TESTS             "Build tests for the enabled packages"       ${PROJECT_IS_TOP_LEVEL})

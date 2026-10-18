@@ -16,10 +16,8 @@ defaults:
   run:
     shell: bash
 
-env:
-  # Keep in step with ci.yml: the vcpkg cache below is keyed on ci.yml, so the two
-  # workflows share cache entries only while this list matches.
-  VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger msgpack"
+# Dependencies come from vcpkg through .github/actions/install-vcpkg-dependencies — the same
+# pinned ports commit, package list and binary cache entries as ci.yml.
 
 jobs:
   # Fails the release before anything is built if the tag, CMake project version and
@@ -81,22 +79,19 @@ jobs:
       matrix:
         include:
           # CMAKE_DISABLE_FIND_PACKAGE_slick-net builds slick-net from source on this runner
-          # rather than taking vcpkg's archive, which is compiled with "-O3 -march=native" and
-          # therefore only runs on a CPU as wide as whichever runner produced it. This job is
-          # Release and runs the offline suites, so it is exposed exactly like the CI Release
-          # jobs -- see the matrix comment in ci.yml for the full story.
+          # rather than taking vcpkg's archive, matching the CI Release jobs -- see the matrix
+          # comment in ci.yml for why, and for why it changes nothing while the pinned vcpkg
+          # commit is below the slick-net floor.
           - label: linux-x64
             os: ubuntu-latest
             triplet: x64-linux
             generator: Ninja
-            vcpkg_cache: ~/.cache/vcpkg/archives
             cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON
           - label: windows-x64
             os: windows-latest
             triplet: x64-windows
             # Empty: CMake selects the newest Visual Studio present on the runner.
             generator: ""
-            vcpkg_cache: ~/AppData/Local/vcpkg/archives
             cmake_args: -A x64
 
     steps:
@@ -108,21 +103,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
-      - name: Cache vcpkg binary archives
-        uses: actions/cache@v4
-        with:
-          path: ${{ matrix.vcpkg_cache }}
-          key: vcpkg-${{ matrix.triplet }}-${{ hashFiles('.github/workflows/ci.yml') }}
-          restore-keys: vcpkg-${{ matrix.triplet }}-
-
       - name: Install dependencies
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            VCPKG="$VCPKG_INSTALLATION_ROOT/vcpkg.exe"
-          else
-            VCPKG="$VCPKG_INSTALLATION_ROOT/vcpkg"
-          fi
-          "$VCPKG" install --triplet "${{ matrix.triplet }}" $VCPKG_PACKAGES
+        uses: ./.github/actions/install-vcpkg-dependencies
+        with:
+          triplet: ${{ matrix.triplet }}
 
       # The archive carries alpaca-options-streaming-cpp alongside the base SDK. msgpack is
       # needed to build it but is not packaged: it is private to that library, so nothing

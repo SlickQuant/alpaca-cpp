@@ -1,0 +1,73 @@
+name: Install vcpkg dependencies
+description: >-
+  Moves the runner's preinstalled vcpkg to one pinned ports commit, restores the vcpkg binary
+  cache, and installs the SDK's dependencies for one triplet. Shared by ci.yml and release.yml
+  so every job resolves the same package versions.
+
+inputs:
+  triplet:
+    description: vcpkg triplet to install for, e.g. x64-linux or x64-windows.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # vcpkg writes built packages to this directory by default, so restoring it turns the
+    # (slow) boost/openssl builds into a copy on every run after the first. The key hashes this
+    # file, which holds both the ports commit and the package list, so changing either rolls it
+    # and the next run saves what it built. ci.yml and release.yml share the entries.
+    - name: Cache vcpkg binary archives
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.os == 'Windows' && '~/AppData/Local/vcpkg/archives' || '~/.cache/vcpkg/archives' }}
+        key: vcpkg-${{ inputs.triplet }}-${{ hashFiles('.github/actions/install-vcpkg-dependencies/action.yml') }}
+        restore-keys: vcpkg-${{ inputs.triplet }}-
+
+    - name: Pin vcpkg and install dependencies
+      shell: bash
+      env:
+        # The ports tree on the runner image is whatever vcpkg the image was built with, and it
+        # lags. Mixing those stale slick-* ports with the newer ones slick-net's FetchContent
+        # pulls in put two slick-queue packages (an old vcpkg one and a fetched 2.3.0) into one
+        # build, which fails configure with "cannot create ALIAS target slick::slick-queue
+        # because target slick::queue is itself an ALIAS". Pinning one commit keeps every job
+        # on a single consistent set; bump it deliberately, together with the floors in the
+        # root CMakeLists.txt and tests/CMakeLists.txt.
+        #
+        # At this commit (microsoft/vcpkg master, 2026-10-17): slick-queue 2.3.0,
+        # slick-stream-buffer 2.1.0, slick-stream-buffer-multiplexer 2.2.0,
+        # slick-dynamic-buffer 1.0.2, msgpack 9.0.0 — and slick-net 4.0.0 / slick-logger 2.2.1,
+        # which are below this repo's floors (4.1.1 / 2.3.0), so those two are still built
+        # from source through FetchContent. They then find every other slick-* package here
+        # instead of fetching their own copies.
+        VCPKG_COMMIT: bf19794383e8fb95eba5aa553235bc8ec2271688
+        # nlohmann_json and OpenSSL are looked up with find_package(... CONFIG REQUIRED), and
+        # apt's libssl-dev ships no OpenSSLConfig.cmake, so vcpkg is required rather than
+        # merely convenient. slick-net and slick-logger are listed for their dependency
+        # closure — Boost, OpenSSL, slick-queue, slick-shm, slick-stream-buffer(-multiplexer)
+        # and slick-dynamic-buffer — which their source builds need; everything else is
+        # transitive and must not be listed. msgpack (the msgpack-cxx headers) is needed by
+        # alpaca-options-streaming-cpp only.
+        VCPKG_PACKAGES: nlohmann-json openssl slick-net slick-logger msgpack
+        TRIPLET: ${{ inputs.triplet }}
+      run: |
+        set -euo pipefail
+        cd "$VCPKG_INSTALLATION_ROOT"
+
+        # The image's clone can be owned by another user, which git refuses to touch.
+        git config --global --add safe.directory "$(pwd)"
+        git fetch --quiet origin "$VCPKG_COMMIT"
+        git -c advice.detachedHead=false checkout --quiet "$VCPKG_COMMIT"
+
+        # A newer ports tree can need a newer vcpkg tool; bootstrapping fetches the one this
+        # commit names.
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          ./bootstrap-vcpkg.bat -disableMetrics
+          VCPKG=./vcpkg.exe
+        else
+          ./bootstrap-vcpkg.sh -disableMetrics
+          VCPKG=./vcpkg
+        fi
+        echo "vcpkg ports pinned at $(git rev-parse --short HEAD)"
+
+        "$VCPKG" install --triplet "$TRIPLET" $VCPKG_PACKAGES

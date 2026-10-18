@@ -43,24 +43,39 @@ exactly the ones it needs.
 
 - C++20 compiler (MSVC 2022, GCC 11+, Clang 14+)
 - CMake 3.21+
-- [slick-net](https://github.com/SlickQuant/slick-net) 3.1.0, nlohmann/json, OpenSSL
-- GTest and [slick-logger](https://github.com/SlickQuant/slick-logger) 1.1.0+ for the test suite only
+- [slick-net](https://github.com/SlickQuant/slick-net) 4.1.1 or a later 4.x, nlohmann/json, OpenSSL
+- GTest and [slick-logger](https://github.com/SlickQuant/slick-logger) 2.3.0+ for the test suite only
 - [msgpack-cxx](https://github.com/msgpack/msgpack-c) for `alpaca-options-streaming-cpp` only
 
 All of these are public vcpkg ports, so one `vcpkg install` covers them — slick-net pulls
 Boost and the remaining `slick-*` packages in transitively:
 
 ```bash
-vcpkg install nlohmann-json openssl slick-net slick-logger
+vcpkg install nlohmann-json openssl slick-net slick-logger msgpack
 ```
 
 Each is looked up with `find_package(... CONFIG)` first. slick-net, slick-logger and GTest
 fall back to `FetchContent` when not found, so the build still works without vcpkg — it
-just clones and builds them from source instead.
+just clones and builds them from source instead. The same happens when your vcpkg's slick-net
+or slick-logger is older than the minimum above, which is the case for vcpkg's ports as of
+October 2026 (slick-net 4.0.0, slick-logger 2.2.1); their dependencies still come from vcpkg.
 
-The options-streaming library additionally needs msgpack-cxx (`vcpkg install msgpack`).
-It is header-only and used inside the library only, so it falls back to `FetchContent`
-too, and nothing that links `slick::alpaca-options-streaming-cpp` has to find it.
+msgpack-cxx is needed only by the options-streaming library, which is built by default;
+`-DBUILD_ALPACA_OPTIONS_STREAMING=OFF` takes it out of the build. It is header-only and used
+inside that library only, so it falls back to `FetchContent` too, and nothing that links
+`slick::alpaca-options-streaming-cpp` has to find it.
+
+> **`cannot create ALIAS target "slick::slick-queue"` at configure time** means two copies
+> of slick-queue ended up in one build. It happens when your vcpkg ports tree predates
+> slick-stream-buffer-multiplexer 2.2.0: slick-net then fetches the multiplexer and the
+> slick-queue 2.3.0 it needs from source, and slick-net's own unversioned
+> `find_package(slick-queue)` loads vcpkg's older slick-queue as well. Update vcpkg
+> (`git pull` in the vcpkg root, then `vcpkg upgrade --no-dry-run`) so it provides
+> slick-queue 2.3.0, slick-stream-buffer 2.1.0 and slick-stream-buffer-multiplexer 2.2.0.
+> Or keep your vcpkg and add
+> `-DCMAKE_DISABLE_FIND_PACKAGE_slick-queue=ON -DCMAKE_DISABLE_FIND_PACKAGE_slick-stream-buffer=ON`
+> to the configure line, which builds those two from source as well. CI avoids it by pinning
+> its vcpkg commit in `.github/actions/install-vcpkg-dependencies`.
 
 > **Clang on Linux:** slick-net ships a compiled archive, and vcpkg builds it with the
 > system GCC. Its `Websocket` constructor carries a trailing
@@ -77,15 +92,17 @@ too, and nothing that links `slick::alpaca-options-streaming-cpp` has to find it
 > path and compiles it in-tree, which is what the CI Clang job does; installing a
 > Clang-built slick-net works equally well.
 
-> **A prebuilt slick-net archive only runs on the CPU that built it:** slick-net's
-> `CMakeLists.txt` sets `CMAKE_CXX_FLAGS_RELEASE` to `-O3 -march=native`, so a Release
-> `libslick-net.a` — vcpkg's included — is compiled for the exact instruction set of the
-> machine that produced it. Install it from a binary cache populated on a wider machine and
-> anything that constructs a stream dies with `SIGILL` / `Illegal instruction` inside the
-> `Websocket` constructor, which reads like a crash in this SDK rather than a build-flag
-> mismatch. Build slick-net where you run it — `-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON`
-> does that, and is why the CI Release jobs pass it — or keep the archive on CPUs compatible
-> with the one that built it. Debug builds are unaffected.
+> **`SIGILL` inside the `Websocket` constructor** means the slick-net archive was compiled
+> for a wider CPU than the one running it. slick-net 3.x forced `-march=native` on every
+> Release build; 4.x — the minimum here — only does so when built with
+> `SLICK_NET_ENABLE_NATIVE_ARCH=ON`. If you opt into that, build slick-net on the machine
+> that runs it (`-DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON` compiles it in-tree) rather than
+> taking the archive from a binary cache populated elsewhere.
+
+> **TLS certificates are verified.** Since slick-net 4.0 every `https://` and `wss://`
+> connection checks the server's chain against the system trust roots and the host name. A
+> TLS-intercepting proxy or a private CA has to be trusted explicitly, through
+> `slick::net::tls_context().load_verify_file(...)`.
 
 ### Building
 
@@ -109,7 +126,7 @@ rest through `find_package`:
 |---|---|---|
 | `BUILD_ALPACA_CORE` | `ON` | Build `alpaca-cpp` |
 | `BUILD_ALPACA_BROKER` | `OFF` | Build `alpaca-broker-cpp` |
-| `BUILD_ALPACA_OPTIONS_STREAMING` | `OFF` | Build `alpaca-options-streaming-cpp` (adds the msgpack dependency) |
+| `BUILD_ALPACA_OPTIONS_STREAMING` | `ON` | Build `alpaca-options-streaming-cpp` (adds the msgpack dependency) |
 | `BUILD_ALPACA_TESTS` | top-level | Tests for the enabled packages |
 | `BUILD_ALPACA_EXAMPLES` | top-level | Examples for the enabled packages |
 
@@ -368,9 +385,9 @@ s.subscribe_trades({"FAKEPACA"});
 
 ### Option streams
 
-`option_data_stream` lives in `alpaca-options-streaming-cpp` (build it with
-`-DBUILD_ALPACA_OPTIONS_STREAMING=ON`), because Alpaca serves the option feeds in
-MessagePack only and the base SDK does not depend on msgpack. Its interface is the JSON
+`option_data_stream` lives in `alpaca-options-streaming-cpp`, which is built by default,
+because Alpaca serves the option feeds in MessagePack only and the base SDK does not
+depend on msgpack. Its interface is the JSON
 streams' interface: the same handlers, the same reconnect behaviour, and trades and quotes
 delivered as the `alpaca::trade` and `alpaca::quote` the REST option methods return.
 
@@ -547,8 +564,8 @@ The suite has two tiers:
 ./build/tests/alpaca_tests --gtest_filter=-*Integration*   # offline only
 ```
 
-Each library has its own test binary. With `-DBUILD_ALPACA_OPTIONS_STREAMING=ON` the build
-also produces `alpaca_options_streaming_tests`, with the same two tiers. The offline tests
+Each library has its own test binary. The options-streaming build also produces
+`alpaca_options_streaming_tests`, with the same two tiers. The offline tests
 feed MessagePack frames — packed, hand-encoded, and captured from Alpaca's servers — to
 `option_data_stream` through the same entry point the socket uses and check what reaches
 the handlers. The integration group connects to the `indicative` feed and asserts on the
@@ -565,7 +582,7 @@ Built with `-DBUILD_ALPACA_EXAMPLES=ON` into `build/examples/`.
 | `market_data_overview` | Read-only: stock snapshot, daily bars, a crypto order book, recent news. Free-tier endpoints only. |
 | `stream_market_data` | Live trades, quotes and bars over websockets. Defaults to the synthetic test feed so it works outside market hours; pass symbols to use IEX. |
 | `place_and_cancel_order` | Full order lifecycle on paper — submit a resting limit order, read it back, replace, cancel. Refuses to run against a live account. |
-| `stream_option_data` | Option trades and quotes for the OCC symbols given on the command line, on the `indicative` feed (`--opra` for OPRA). Built with `-DBUILD_ALPACA_OPTIONS_STREAMING=ON`. |
+| `stream_option_data` | Option trades and quotes for the OCC symbols given on the command line, on the `indicative` feed (`--opra` for OPRA). Built with the options-streaming library. |
 
 ## License
 

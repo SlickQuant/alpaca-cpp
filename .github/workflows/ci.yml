@@ -15,18 +15,8 @@ defaults:
   run:
     shell: bash
 
-env:
-  # Resolved through the vcpkg preinstalled on the runner image. Both nlohmann_json and
-  # OpenSSL are looked up with find_package(... CONFIG REQUIRED), and apt's libssl-dev
-  # ships no OpenSSLConfig.cmake, so vcpkg is required here rather than merely convenient.
-  # slick-logger is a public vcpkg port, so it comes from the binary cache instead of a git
-  # clone + source build. slick-net is listed for its dependency closure rather than for its
-  # archive: the Release jobs build it from source (see the matrix), but they still need the
-  # Boost and OpenSSL it pulls in. Everything else is transitive and must not be listed here:
-  # slick-net pulls boost-asio/beast/context/system, slick-dynamic-buffer, slick-queue and
-  # slick-stream-buffer(-multiplexer), and slick-logger pulls slick-queue.
-  # msgpack (the msgpack-cxx headers) is needed by alpaca-options-streaming-cpp only.
-  VCPKG_PACKAGES: "nlohmann-json openssl slick-net slick-logger msgpack"
+# Dependencies come from vcpkg through .github/actions/install-vcpkg-dependencies, which
+# pins the ports commit and holds the package list for this workflow and release.yml alike.
 
 jobs:
   build:
@@ -38,17 +28,15 @@ jobs:
         include:
           # Every Linux *Release* job passes -DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON, which
           # sends the root CMakeLists down its FetchContent fallback so slick-net is compiled
-          # by the same compiler, on the same machine, as the code that consumes it.
-          # slick-net's own CMakeLists overwrites CMAKE_CXX_FLAGS_RELEASE with
-          # "-O3 -march=native", so the libslick-net.a vcpkg installs is tuned for whichever
-          # runner happened to build it. vcpkg's ABI hash does not cover the host CPU, so the
-          # archive cache below replays that build on runners with a narrower one, and every
-          # test that constructs a stream then dies with SIGILL inside the Websocket
-          # constructor -- the first frame that leaves this repo's own objects. Debug is
-          # unaffected (CMAKE_CXX_FLAGS_RELEASE is never used) and so is MSVC (that branch of
-          # slick-net's if() sets /O2 and names no -march), so those jobs keep consuming the
-          # vcpkg archive and cover that path. slick-net stays in VCPKG_PACKAGES either way:
-          # the source build still needs its Boost/OpenSSL dependencies from there.
+          # by the same compiler, on the same machine, as the code that consumes it. It dates
+          # from slick-net 3.x, which forced "-O3 -march=native" on Release builds, so the
+          # libslick-net.a that vcpkg's binary cache replayed on a narrower runner died with
+          # SIGILL inside the Websocket constructor; slick-net 4.x no longer does that by
+          # default. For now the flag changes nothing: the pinned vcpkg commit (see
+          # .github/actions/install-vcpkg-dependencies) carries slick-net 4.0.0, below this
+          # repo's 4.1.1 floor, so every job builds slick-net from source anyway. It keeps
+          # these jobs on the source build once vcpkg catches up. slick-net stays in the vcpkg
+          # package list either way: the source build still needs its Boost/OpenSSL from there.
           # Pinned rather than default-GCC on purpose: GCC 11 and 13 ICE on an
           # initializer_list temporary held across a co_await (worked around in
           # trading_client_awaitable.cpp), and GCC 14 does not. If this job followed the
@@ -59,7 +47,6 @@ jobs:
             triplet: x64-linux
             generator: Ninja
             build_type: Release
-            vcpkg_cache: ~/.cache/vcpkg/archives
             apt_packages: g++-13
             cmake_args: -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13 -DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON
           # Follows the runner's default GCC, so newer releases get exercised too.
@@ -68,7 +55,6 @@ jobs:
             triplet: x64-linux
             generator: Ninja
             build_type: Debug
-            vcpkg_cache: ~/.cache/vcpkg/archives
             cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
           # Clang would need the source build anyway, for a second and independent reason:
           # slick-net's Websocket constructor carries a trailing `requires std::default_initializable<BufferT>`,
@@ -81,7 +67,6 @@ jobs:
             triplet: x64-linux
             generator: Ninja
             build_type: Release
-            vcpkg_cache: ~/.cache/vcpkg/archives
             cmake_args: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_DISABLE_FIND_PACKAGE_slick-net=ON
           - name: Windows MSVC / Release
             os: windows-latest
@@ -89,7 +74,6 @@ jobs:
             # Empty: CMake selects the newest Visual Studio present on the runner.
             generator: ""
             build_type: Release
-            vcpkg_cache: ~/AppData/Local/vcpkg/archives
             cmake_args: -A x64
 
     steps:
@@ -103,30 +87,16 @@ jobs:
         if: matrix.apt_packages != ''
         run: sudo apt-get install -y ${{ matrix.apt_packages }}
 
-      # vcpkg writes built packages to this directory by default, so restoring it turns
-      # the (slow) boost/openssl builds into a copy on every run after the first.
-      - name: Cache vcpkg binary archives
-        uses: actions/cache@v4
-        with:
-          path: ${{ matrix.vcpkg_cache }}
-          key: vcpkg-${{ matrix.triplet }}-${{ hashFiles('.github/workflows/ci.yml') }}
-          restore-keys: vcpkg-${{ matrix.triplet }}-
-
       - name: Install dependencies
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            VCPKG="$VCPKG_INSTALLATION_ROOT/vcpkg.exe"
-          else
-            VCPKG="$VCPKG_INSTALLATION_ROOT/vcpkg"
-          fi
-          "$VCPKG" install --triplet "${{ matrix.triplet }}" $VCPKG_PACKAGES
+        uses: ./.github/actions/install-vcpkg-dependencies
+        with:
+          triplet: ${{ matrix.triplet }}
 
-      # slick-logger is satisfied by the vcpkg install above; googletest is still resolved
-      # through FetchContent. "Fetching slick-logger" in this step's log means the runner's
-      # vcpkg snapshot was older than the find_package version floor (slick-logger 1.1.0) and
-      # the build quietly fell back to a git clone -- the build still passes, so the log is
-      # the only signal. "Fetching slick-net" is expected in every job whose cmake_args carry
-      # CMAKE_DISABLE_FIND_PACKAGE_slick-net, and a surprise in the ones that do not.
+      # googletest is resolved through FetchContent. "Fetching slick-net" and "Fetching
+      # slick-logger" are expected in every job while the pinned vcpkg commit carries versions
+      # below this repo's floors (see the action). Any other "Fetching slick-..." line means a
+      # slick-* package was not taken from vcpkg, which is how two copies of one package end
+      # up in the same build.
       - name: Configure
         run: |
           GEN=()
@@ -168,16 +138,10 @@ jobs:
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
-      - name: Cache vcpkg binary archives
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/vcpkg/archives
-          key: vcpkg-x64-linux-${{ hashFiles('.github/workflows/ci.yml') }}
-          restore-keys: vcpkg-x64-linux-
-
       - name: Install dependencies
-        run: |
-          "$VCPKG_INSTALLATION_ROOT/vcpkg" install --triplet x64-linux $VCPKG_PACKAGES
+        uses: ./.github/actions/install-vcpkg-dependencies
+        with:
+          triplet: x64-linux
 
       - name: Build and install to a staging prefix
         run: |
