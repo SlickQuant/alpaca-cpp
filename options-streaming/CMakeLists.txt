@@ -4,10 +4,19 @@ if (NOT TARGET slick::alpaca-cpp)
     find_package(alpaca-cpp CONFIG REQUIRED)
 endif()
 
+# msgpack-cxx is msgpack's C++ header-only library, the vcpkg port `msgpack`. The port named
+# `msgpack-c` is the separate C library: it ships none of the C++ headers the decoder uses, and
+# the two ports cannot be installed side by side.
 find_package(msgpack-cxx CONFIG QUIET)
 if (msgpack-cxx_FOUND)
     message(STATUS "Found msgpack-cxx ${msgpack-cxx_VERSION}: ${msgpack-cxx_DIR}")
 else()
+    find_package(msgpack-c CONFIG QUIET)
+    if (msgpack-c_FOUND)
+        message(WARNING "Found msgpack-c, msgpack's C library, but not msgpack-cxx, which "
+                        "alpaca-options-streaming-cpp needs. With vcpkg: `vcpkg remove "
+                        "msgpack-c` then `vcpkg install msgpack`. Fetching msgpack-cxx instead.")
+    endif()
     message(STATUS "Fetching msgpack-cxx...")
     include(FetchContent)
     # msgpack-cxx is header-only and only its headers are wanted. SOURCE_SUBDIR names a

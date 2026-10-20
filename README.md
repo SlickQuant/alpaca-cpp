@@ -63,7 +63,9 @@ October 2026 (slick-net 4.0.0, slick-logger 2.2.1); their dependencies still com
 msgpack-cxx is needed only by the options-streaming library, which is built by default;
 `-DBUILD_ALPACA_OPTIONS_STREAMING=OFF` takes it out of the build. It is header-only and used
 inside that library only, so it falls back to `FetchContent` too, and nothing that links
-`slick::alpaca-options-streaming-cpp` has to find it.
+`slick::alpaca-options-streaming-cpp` has to find it. In vcpkg it is the port `msgpack`; the
+port `msgpack-c` is msgpack's separate C library, does not provide these headers, and cannot
+be installed alongside `msgpack`.
 
 > **`cannot create ALIAS target "slick::slick-queue"` at configure time** means two copies
 > of slick-queue ended up in one build. It happens when your vcpkg ports tree predates
